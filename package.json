@@ -10,7 +10,7 @@
     "pm2:logs": "pm2 logs rust-integration"
   },
   "dependencies": {
-    "@liamcottle/rustplus.js": "^2.6.3",
+    "@liamcottle/rustplus.js": "^2.5.0",
     "axios": "^1.7.7",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

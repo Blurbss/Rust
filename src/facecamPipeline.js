@@ -5,7 +5,7 @@ const twitchMap = require('./twitchMap');
 const { grabFrameForUser } = require('./frameGrabber');
 const { detectFacecam } = require('./facecamDetector');
 const { cropImageBuffer } = require('./imageCrop');
-const { getJpegDimensions, clampBox } = require('./imageDimensions');
+const { getJpegDimensions, buildCropFromCenter } = require('./imageDimensions');
 const rustApi = require('./rustPluginClient');
 
 const FACECAM_DIR = path.join(__dirname, '..', 'public', 'facecam');
@@ -91,18 +91,22 @@ async function updateFacecamOnCanvas(steamId, netId) {
     return { ok: false, reason: `no facecam found for ${twitchUsername}` };
   }
 
-  const pixelBox = {
-    x: bbox.x * dims.width,
-    y: bbox.y * dims.height,
-    width: bbox.width * dims.width,
-    height: bbox.height * dims.height
-  };
+  const margin = config.facecamCrop.edgeMarginFraction;
+  if (margin > 0) {
+    const nearEdge = bbox.cx <= margin || bbox.cx >= 1 - margin || bbox.cy <= margin || bbox.cy >= 1 - margin;
+    if (!nearEdge) {
+      return {
+        ok: false,
+        reason: `model reported a face far from any screen edge (cx=${bbox.cx}, cy=${bbox.cy}) for ${twitchUsername} — likely the in-game character's face rather than a real overlay, since facecams are virtually always edge-pinned`
+      };
+    }
+  }
 
-  const clamped = clampBox(pixelBox, dims);
+  const clamped = buildCropFromCenter(bbox, dims, config.facecamCrop);
   if (!clamped) {
     return {
       ok: false,
-      reason: `model returned an out-of-bounds box for ${twitchUsername} (frame ${dims.width}x${dims.height}, got fractional x=${bbox.x},y=${bbox.y},w=${bbox.width},h=${bbox.height})`
+      reason: `model returned an out-of-bounds center point for ${twitchUsername} (frame ${dims.width}x${dims.height}, got cx=${bbox.cx},cy=${bbox.cy},width=${bbox.width},height=${bbox.height})`
     };
   }
 

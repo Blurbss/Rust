@@ -121,13 +121,19 @@ server {
 
 1. Looks up the twitch username for `steamId` (in-memory, instant).
 2. Resolves the live stream URL via `streamlink --stream-url` and grabs one frame via `ffmpeg`.
-3. Sends that frame to OpenAI asking for the facecam's pixel bounding box — the prompt is
-   written to distinguish a real corner-pinned facecam/VTuber overlay from the in-game Rust
-   character's face, and to say "not found" rather than guess when there's no facecam.
-4. Crops to that box with `ffmpeg` (reusing the same binary, no extra image library).
-5. Writes the crop to `public/facecam/`, deleting that steamId's previous file first so
+3. Sends that frame to OpenAI asking for the facecam's CENTER POINT and a rough size estimate
+   (not exact box edges — vision models are far more reliable at "where is it" than "exactly how
+   big is it"). The prompt distinguishes a real face (human webcam or VTuber avatar) from
+   box-shaped UI elements like chat/alerts/stat bars, and handles borderless green-screen cutouts.
+4. Builds a crop window around that center point, sized from the model's rough estimate but
+   padded generously (`FACECAM_PADDING_MULTIPLIER`) and bounded to a min/max fraction of the
+   frame (`FACECAM_MIN_CROP_FRACTION` / `FACECAM_MAX_CROP_FRACTION`) — this means even a
+   somewhat-off center point or a wrong size guess still produces a crop that contains the face,
+   at the cost of including a bit more surrounding background than a perfectly tight crop would.
+5. Crops to that window with `ffmpeg` (reusing the same binary, no extra image library).
+6. Writes the crop to `public/facecam/`, deleting that steamId's previous file first so
    repeated calls don't accumulate files on disk.
-6. Calls `rustPluginClient.paintCanvas(netId, url)` — note the plugin's doc says a 202 there
+7. Calls `rustPluginClient.paintCanvas(netId, url)` — note the plugin's doc says a 202 there
    means "queued for download, not painted yet", so the actual in-game paint happens
    asynchronously on their side, outside this app's control.
 

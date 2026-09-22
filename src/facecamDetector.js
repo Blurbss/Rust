@@ -55,15 +55,28 @@ default to picking some other box-shaped overlay just because you couldn't find 
 "found: false" answer is correct and expected for streamers with no facecam at all.
 
 Respond with ONLY compact JSON, no prose, no markdown fences, in exactly this shape:
-{"found": true, "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}
+{"found": true, "cx": 0.0, "cy": 0.0, "width": 0.0, "height": 0.0}
 or
 {"found": false}
-x, y, width, and height are FRACTIONS of the image's total width/height, from 0.0 to 1.0 — NOT
-pixel values. x=0,y=0 is the top-left corner; x=1,y=1 is the bottom-right corner. For example, a
-face occupying the left 20% and bottom 30% of the frame would be roughly
-{"found": true, "x": 0.0, "y": 0.7, "width": 0.2, "height": 0.3}.
-It's fine to include a small margin around the face rather than cropping it exactly tight —
-err slightly generous rather than cutting off part of the face.`;
+cx, cy are the CENTER of the FACE itself — specifically, the midpoint between eye level and the
+bottom of the nose, roughly where the bridge of the nose sits. Do NOT center on the whole webcam
+overlay or camera feed as a box — ignore hair, headphones, a hat, a microphone, shoulders, or
+torso when picking this point. Those extend by very different amounts above/below/beside the face
+depending on the streamer's camera framing, so anchoring to the face itself (not the overall
+overlay shape) keeps the point consistent regardless of how much extra headroom or shoulder is
+visible. cx, cy are fractions of the image's total width/height (0.0 to 1.0). x=0,y=0 is the
+top-left corner; x=1,y=1 is the bottom-right corner.
+width and height are ROUGH estimates of how much space to include AROUND that face point for a
+good crop (enough to comfortably contain the whole head, and typically a bit of the surrounding
+overlay) — as a fraction of the image's total width and height respectively. These do NOT need to
+be precise or equal to each other — most facecam overlays are wider than they are tall, or vice
+versa, so estimate each dimension independently rather than assuming a square shape.
+We'll add generous padding around your point automatically, so focus your effort on getting the
+FACE-CENTER point right, and the rough proportions (wide-and-short, tall-and-narrow, or roughly
+square) rather than trying to perfect the exact edges.
+Example: a face centered near the right side of the frame, at eye level roughly a third of the way
+down from the top, in an overlay that's moderately wide and moderately tall, would be
+{"found": true, "cx": 0.85, "cy": 0.33, "width": 0.3, "height": 0.35}.`;
 
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);
@@ -73,13 +86,13 @@ function extractJson(text) {
 
 /**
  * @param {Buffer} imageBuffer JPEG frame
- * @param {{width:number,height:number}} dims actual pixel dimensions of imageBuffer,
- *   kept as a parameter for compatibility even though the prompt now asks for
- *   fractional (0-1) coordinates rather than exact pixels — precise pixel
- *   regression is something vision models are unreliable at, especially once
- *   the image is internally resized/tiled before the model sees it.
- * @returns {Promise<{found:false}|{found:true,x:number,y:number,width:number,height:number}>}
- *   x/y/width/height are fractions of image width/height (0.0-1.0), not pixels.
+ * @param {{width:number,height:number}} dims actual pixel dimensions of imageBuffer
+ *   (kept for signature compatibility; not directly used since coordinates are fractional)
+ * @returns {Promise<{found:false}|{found:true,cx:number,cy:number,width:number,height:number}>}
+ *   cx/cy are the fractional (0.0-1.0) CENTER point of the face; width/height are rough
+ *   independent fractional size estimates (not assumed square — real overlays rarely are).
+ *   Center-point estimation is a task vision models handle far more reliably than precise
+ *   box-edge regression.
  */
 async function detectFacecam(imageBuffer, dims) {
   if (!config.openai.apiKey) {
@@ -87,7 +100,7 @@ async function detectFacecam(imageBuffer, dims) {
   }
 
   const base64 = imageBuffer.toString('base64');
-  const userText = 'Find the facecam in this frame, if any. Return x, y, width, and height as fractions of the image (0.0-1.0), not pixels.';
+  const userText = 'Find the facecam in this frame, if any. Return its center point (cx, cy) and rough width/height, as independent fractions of the image (0.0-1.0) — do not assume a square shape.';
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',

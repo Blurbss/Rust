@@ -50,13 +50,75 @@ function getJpegDimensions(buffer) {
  * nothing sane is left after clamping (e.g. box was entirely outside the frame).
  */
 function clampBox(box, dims) {
-  let x = Math.max(0, Math.min(Math.round(box.x), dims.width - 1));
-  let y = Math.max(0, Math.min(Math.round(box.y), dims.height - 1));
-  let width = Math.max(0, Math.min(Math.round(box.width), dims.width - x));
-  let height = Math.max(0, Math.min(Math.round(box.height), dims.height - y));
+  // Cap size to the frame first — a box literally can't be bigger than the
+  // image it's cropped from.
+  let width = Math.min(Math.round(box.width), dims.width);
+  let height = Math.min(Math.round(box.height), dims.height);
 
   if (width < 10 || height < 10) return null; // too small to be a real facecam crop
+
+  let x = Math.round(box.x);
+  let y = Math.round(box.y);
+
+  // Slide (don't shrink) the box back inside the frame if it overflows an
+  // edge. This matters a lot for facecams pinned near the actual edge of the
+  // video — shrinking the box there would truncate straight through the
+  // face; sliding it preserves the full crop size and just repositions the
+  // window to capture it entirely.
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x + width > dims.width) x = dims.width - width;
+  if (y + height > dims.height) y = dims.height - height;
+
   return { x, y, width, height };
 }
 
-module.exports = { getJpegDimensions, clampBox };
+/**
+ * Builds a crop box from a center point + rough width/height estimates, with
+ * generous padding and hard min/max bounds on each axis independently — designed
+ * so that even a somewhat-off center point or a wrong size estimate still
+ * produces a sane crop that contains the actual face, and so the crop's
+ * aspect ratio can actually match the real overlay shape (most facecams are
+ * wider than tall, or vice versa — never assume square).
+ *
+ * @param {{cx:number, cy:number, width:number, height:number}} point fractional (0-1)
+ *   center point plus independent rough width/height estimates
+ * @param {{width:number, height:number}} dims real pixel dimensions of the frame
+ * @param {object} [opts]
+ * @param {number} [opts.paddingMultiplier] how much bigger than the raw estimate
+ *   the crop window should be on each axis (e.g. 1.8 = 80% bigger), to absorb
+ *   center/size error
+ * @param {number} [opts.minFraction] crop width/height will never be smaller than
+ *   this fraction of the frame's respective dimension
+ * @param {number} [opts.maxFraction] crop width/height will never be larger than
+ *   this fraction of the frame's respective dimension
+ */
+function buildCropFromCenter(point, dims, opts = {}) {
+  const paddingMultiplier = opts.paddingMultiplier ?? 1.8;
+  const minFraction = opts.minFraction ?? 0.08;
+  const maxFraction = opts.maxFraction ?? 0.5;
+
+  const rawWidthFraction = Math.max(0, point.width || 0);
+  const rawHeightFraction = Math.max(0, point.height || 0);
+
+  const paddedWidthFraction = Math.min(maxFraction, Math.max(minFraction, rawWidthFraction * paddingMultiplier));
+  const paddedHeightFraction = Math.min(maxFraction, Math.max(minFraction, rawHeightFraction * paddingMultiplier));
+
+  const cropWidth = paddedWidthFraction * dims.width;
+  const cropHeight = paddedHeightFraction * dims.height;
+
+  const cx = point.cx * dims.width;
+  const cy = point.cy * dims.height;
+
+  return clampBox(
+    {
+      x: cx - cropWidth / 2,
+      y: cy - cropHeight / 2,
+      width: cropWidth,
+      height: cropHeight
+    },
+    dims
+  );
+}
+
+module.exports = { getJpegDimensions, clampBox, buildCropFromCenter };

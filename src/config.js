@@ -51,5 +51,27 @@ module.exports = {
     quality: process.env.STREAM_QUALITY || '480p,worst',
     resolveTimeoutMs: Number(process.env.STREAM_RESOLVE_TIMEOUT_MS) || 6000,
     ffmpegTimeoutMs: Number(process.env.STREAM_FFMPEG_TIMEOUT_MS) || 6000
+  },
+
+  facecamCrop: {
+    // Crop window = model's rough size estimate * this multiplier, then
+    // bounded to [minFraction, maxFraction] of the frame's respective
+    // dimension — absorbs both center-point error and a wrong size guess
+    // without needing a precise box. Bumped generous by default since an
+    // underestimated width/height is a common failure mode and extra
+    // background in the crop is a cheap tradeoff for not cutting off the face.
+    paddingMultiplier: Number(process.env.FACECAM_PADDING_MULTIPLIER) || 2.2,
+    minFraction: Number(process.env.FACECAM_MIN_CROP_FRACTION) || 0.1,
+    maxFraction: Number(process.env.FACECAM_MAX_CROP_FRACTION) || 0.5,
+
+    // Sanity check, not a prompt instruction: real facecam overlays are
+    // virtually always pinned near a screen edge. If the model reports a
+    // center point that isn't close to ANY edge, that's the exact profile
+    // of the in-game character's face (which can appear anywhere, including
+    // dead center) — so we reject it as a likely misidentification rather
+    // than trusting the model's own edge/center judgment on this one point.
+    // A point within this fraction of any edge counts as "near an edge".
+    // Set to 0 to disable this check entirely.
+    edgeMarginFraction: Number(process.env.FACECAM_EDGE_MARGIN_FRACTION) ?? 0.15
   }
 };

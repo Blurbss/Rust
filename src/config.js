@@ -1,7 +1,8 @@
 require('dotenv').config();
 
 function required(name, fallback) {
-  const val = process.env[name] ?? fallback;
+  const raw = process.env[name];
+  const val = raw === undefined || raw === '' ? fallback : raw;
   if (val === undefined || val === '') {
     console.warn(`[config] Warning: ${name} is not set`);
   }

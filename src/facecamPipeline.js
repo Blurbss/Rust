@@ -91,11 +91,18 @@ async function updateFacecamOnCanvas(steamId, netId) {
     return { ok: false, reason: `no facecam found for ${twitchUsername}` };
   }
 
-  const clamped = clampBox(bbox, dims);
+  const pixelBox = {
+    x: bbox.x * dims.width,
+    y: bbox.y * dims.height,
+    width: bbox.width * dims.width,
+    height: bbox.height * dims.height
+  };
+
+  const clamped = clampBox(pixelBox, dims);
   if (!clamped) {
     return {
       ok: false,
-      reason: `model returned an out-of-bounds box for ${twitchUsername} (frame ${dims.width}x${dims.height}, got x=${bbox.x},y=${bbox.y},w=${bbox.width},h=${bbox.height})`
+      reason: `model returned an out-of-bounds box for ${twitchUsername} (frame ${dims.width}x${dims.height}, got fractional x=${bbox.x},y=${bbox.y},w=${bbox.width},h=${bbox.height})`
     };
   }
 
@@ -116,6 +123,20 @@ async function updateFacecamOnCanvas(steamId, netId) {
     await fs.mkdir(FACECAM_DIR, { recursive: true });
     await fs.writeFile(path.join(FACECAM_DIR, filename), cropped);
     publicUrl = `${config.publicBaseUrl}/facecam/${filename}`;
+
+    // Validate before handing it to the plugin — a malformed PUBLIC_BASE_URL
+    // (unset, empty, missing scheme) would otherwise surface as a generic
+    // "Invalid URL" from either axios or the plugin's own server-side check,
+    // with no indication of which side or which env var is actually wrong.
+    try {
+      new URL(publicUrl);
+    } catch {
+      return {
+        ok: false,
+        reason: `constructed an invalid public URL ("${publicUrl}") — check PUBLIC_BASE_URL in .env (must be a full URL including https://)`
+      };
+    }
+
     log('write + build url', t4);
   } catch (err) {
     return { ok: false, reason: `saving cropped image failed: ${err.message}` };
@@ -123,6 +144,9 @@ async function updateFacecamOnCanvas(steamId, netId) {
 
   try {
     const t5 = Date.now();
+    if (!config.rustApi.baseUrl) {
+      return { ok: false, reason: 'RUST_API_BASE_URL is not set — cannot reach the plugin API' };
+    }
     await rustApi.paintCanvas(netId, publicUrl);
     log('paint canvas call', t5);
   } catch (err) {

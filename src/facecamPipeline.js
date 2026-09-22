@@ -5,6 +5,7 @@ const twitchMap = require('./twitchMap');
 const { grabFrameForUser } = require('./frameGrabber');
 const { detectFacecam } = require('./facecamDetector');
 const { cropImageBuffer } = require('./imageCrop');
+const { getJpegDimensions, clampBox } = require('./imageDimensions');
 const rustApi = require('./rustPluginClient');
 
 const FACECAM_DIR = path.join(__dirname, '..', 'public', 'facecam');
@@ -70,10 +71,17 @@ async function updateFacecamOnCanvas(steamId, netId) {
     return { ok: false, reason: `frame grab failed: ${err.message}` };
   }
 
+  let dims;
+  try {
+    dims = getJpegDimensions(frame);
+  } catch (err) {
+    return { ok: false, reason: `could not read frame dimensions: ${err.message}` };
+  }
+
   let bbox;
   try {
     const t2 = Date.now();
-    bbox = await detectFacecam(frame);
+    bbox = await detectFacecam(frame, dims);
     log('detect facecam', t2);
   } catch (err) {
     return { ok: false, reason: `facecam detection failed: ${err.message}` };
@@ -83,10 +91,18 @@ async function updateFacecamOnCanvas(steamId, netId) {
     return { ok: false, reason: `no facecam found for ${twitchUsername}` };
   }
 
+  const clamped = clampBox(bbox, dims);
+  if (!clamped) {
+    return {
+      ok: false,
+      reason: `model returned an out-of-bounds box for ${twitchUsername} (frame ${dims.width}x${dims.height}, got x=${bbox.x},y=${bbox.y},w=${bbox.width},h=${bbox.height})`
+    };
+  }
+
   let cropped;
   try {
     const t3 = Date.now();
-    cropped = await cropImageBuffer(frame, bbox);
+    cropped = await cropImageBuffer(frame, clamped);
     log('crop', t3);
   } catch (err) {
     return { ok: false, reason: `crop failed: ${err.message}` };

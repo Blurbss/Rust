@@ -36,7 +36,11 @@ module.exports = {
 
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    // "low" is faster/cheaper but downsamples internally before analysis, which
+    // can make coordinate accuracy worse. If clamped/rejected boxes are common
+    // in your logs, try "high" — costs more latency for better spatial accuracy.
+    imageDetail: process.env.OPENAI_IMAGE_DETAIL || 'low'
   },
 
   stream: {

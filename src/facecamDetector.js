@@ -25,7 +25,9 @@ Respond with ONLY compact JSON, no prose, no markdown fences, in exactly this sh
 {"found": true, "x": 0, "y": 0, "width": 0, "height": 0}
 or
 {"found": false}
-Coordinates are integer pixel values relative to the top-left corner of the image as given.`;
+Coordinates are integer pixel values relative to the top-left corner of the image as given.
+The user message will state the image's exact pixel dimensions — your x, y, width, and height
+values must fit entirely within those bounds (x+width <= image width, y+height <= image height).`;
 
 function extractJson(text) {
   const match = text.match(/\{[\s\S]*\}/);
@@ -35,14 +37,18 @@ function extractJson(text) {
 
 /**
  * @param {Buffer} imageBuffer JPEG frame
+ * @param {{width:number,height:number}} dims actual pixel dimensions of imageBuffer —
+ *   critical to include, since without grounding the model can return coordinates
+ *   that don't correspond to the real frame size at all.
  * @returns {Promise<{found:false}|{found:true,x:number,y:number,width:number,height:number}>}
  */
-async function detectFacecam(imageBuffer) {
+async function detectFacecam(imageBuffer, dims) {
   if (!config.openai.apiKey) {
     throw new Error('OPENAI_API_KEY is not set');
   }
 
   const base64 = imageBuffer.toString('base64');
+  const userText = `Find the facecam in this frame, if any. The image is exactly ${dims.width}x${dims.height} pixels — return coordinates within that range.`;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -57,12 +63,12 @@ async function detectFacecam(imageBuffer) {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Find the facecam in this frame, if any.' },
+            { type: 'text', text: userText },
             {
               type: 'image_url',
               image_url: {
                 url: `data:image/jpeg;base64,${base64}`,
-                detail: 'low'
+                detail: config.openai.imageDetail
               }
             }
           ]

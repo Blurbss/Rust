@@ -1,10 +1,18 @@
 const express = require('express');
+const path = require('path');
 const config = require('./config');
 const { dispatch } = require('./webhookHandlers');
+const { updateFacecamOnCanvas } = require('./facecamPipeline');
 
 function createServer() {
   const app = express();
   app.use(express.json());
+
+  // The Rust plugin fetches the cropped facecam image from this URL when you
+  // call POST /canvases/<netId>/image with a "url" pointing here.
+  app.use('/facecam', express.static(path.join(__dirname, '..', 'public', 'facecam'), {
+    maxAge: 0 // these are short-lived, always serve the current file
+  }));
 
   // Simple shared-secret check. The webhook URL you hand out is
   // https://yourdomain.com/webhook?key=<WEBHOOK_SECRET>
@@ -33,6 +41,15 @@ function createServer() {
     } catch (err) {
       console.error(`[webhook] handler error for "${envelope.event}":`, err);
     }
+  });
+
+  // Manual trigger for testing the facecam pipeline without waiting on a real
+  // in-game event, e.g.:
+  //   POST /facecam/76561198000000000/224081304?key=<WEBHOOK_SECRET>
+  app.post('/facecam/:steamId/:netId', verifySecret, async (req, res) => {
+    const { steamId, netId } = req.params;
+    const result = await updateFacecamOnCanvas(steamId, netId);
+    res.status(result.ok ? 200 : 422).json(result);
   });
 
   app.get('/healthz', (req, res) => res.json({ ok: true }));

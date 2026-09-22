@@ -16,6 +16,14 @@ src/
   rustPluginClient.js       axios client for their HTTP API (you -> them): /players, /chests, etc.
   rustplusClient.js         @liamcottle/rustplus.js wrapper, based on your sample script
   speech.js                 Azure Speech SDK (TTS now, STT stubbed for later)
+  twitchMap.js              steamId -> twitch username, loaded from data/steam-twitch-map.json into memory
+  frameGrabber.js           streamlink (resolve URL) + ffmpeg (grab 1 frame) as fast as possible
+  facecamDetector.js        sends the frame to OpenAI, asks for the facecam's pixel bounding box
+  imageCrop.js              crops the frame to that box using ffmpeg (no extra image library)
+  facecamPipeline.js        orchestrates all of the above end-to-end + disk cleanup
+data/
+  steam-twitch-map.json     steamId -> twitch username map (edit directly, or via twitchMap.setTwitchUsername)
+public/facecam/             cropped images get written here and served at /facecam/<file> for the plugin to fetch
 ```
 
 ## Setup
@@ -36,6 +44,21 @@ cp .env.example .env
 - `RUSTPLUS_*` — only needed once you've paired via the rustplus.js CLI to get a player
   token. Leave blank and the app will skip connecting to Rust+ without crashing.
 - `AZURE_KEY` / `AZURE_REGION` — only needed once you wire up TTS/STT.
+- `PUBLIC_BASE_URL` — must match your nginx prefix (`https://blurbsttv.com/rust`), since this
+  is used to build the URL handed to the plugin's canvas-paint endpoint.
+- `OPENAI_API_KEY` / `OPENAI_MODEL` — for the facecam detection step. Default model is
+  `gpt-4o-mini` (vision-capable, fast, cheap).
+- `STREAM_QUALITY` — fallback chain streamlink tries, in order (e.g. `480p,worst`). Lower
+  resolution = faster resolve/transfer, but less detail for finding a small facecam overlay.
+
+### System dependencies (install these on the droplet, not via npm)
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg python3-pip
+pip3 install --upgrade streamlink
+```
+Confirm both are on PATH: `ffmpeg -version` and `streamlink --version`.
 
 ## Running
 
@@ -91,6 +114,52 @@ server {
     }
 }
 ```
+
+## Facecam pipeline
+
+`src/facecamPipeline.js` exports `updateFacecamOnCanvas(steamId, netId)`, which:
+
+1. Looks up the twitch username for `steamId` (in-memory, instant).
+2. Resolves the live stream URL via `streamlink --stream-url` and grabs one frame via `ffmpeg`.
+3. Sends that frame to OpenAI asking for the facecam's pixel bounding box — the prompt is
+   written to distinguish a real corner-pinned facecam/VTuber overlay from the in-game Rust
+   character's face, and to say "not found" rather than guess when there's no facecam.
+4. Crops to that box with `ffmpeg` (reusing the same binary, no extra image library).
+5. Writes the crop to `public/facecam/`, deleting that steamId's previous file first so
+   repeated calls don't accumulate files on disk.
+6. Calls `rustPluginClient.paintCanvas(netId, url)` — note the plugin's doc says a 202 there
+   means "queued for download, not painted yet", so the actual in-game paint happens
+   asynchronously on their side, outside this app's control.
+
+Each stage logs its own timing (`[facecam] grab frame: 1234ms`, etc.) so you can see where
+time is actually going once it's running against a real stream — `pm2 logs rust-integration`
+will show it live.
+
+**Realistic latency expectations:** streamlink negotiating with Twitch plus ffmpeg pulling a
+frame typically runs 1–4 seconds depending on the quality you pick; the OpenAI call is
+another 1–2 seconds even at low detail. A couple of seconds end-to-end (through step 5) is
+achievable but tight — test against a real stream and tune `STREAM_QUALITY` down if you need
+it faster, at the cost of the vision model having a lower-resolution frame to search.
+
+**Testing without a real in-game trigger:**
+```bash
+curl -X POST "https://blurbsttv.com/rust/facecam/<steamId>/<netId>?key=<WEBHOOK_SECRET>"
+```
+Returns `{"ok":true,"url":"..."}` or `{"ok":false,"reason":"..."}` — the reason string tells
+you which stage failed (no mapping, streamer offline, no facecam found, etc).
+
+**Wiring it to an actual trigger:** it's not called automatically from anywhere yet — see the
+commented-out example in `handleButtonPress` in `src/webhookHandlers.js`. Whatever event you
+pick, call it fire-and-forget (`.then()`, not `await`) from inside the handler, since the
+webhook response to the plugin is already sent before `dispatch()` runs.
+
+**Adding steamId → twitch mappings:**
+```js
+const twitchMap = require('./src/twitchMap');
+twitchMap.setTwitchUsername('76561198000000000', 'their_twitch_username');
+```
+or just edit `data/steam-twitch-map.json` directly and restart the app (it's only read once
+at startup).
 
 ## Extending
 

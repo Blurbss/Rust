@@ -1,6 +1,7 @@
 const config = require('./src/config');
 const { createServer } = require('./src/webhookServer');
 const rustplusClient = require('./src/rustplusClient');
+const { sweepOldFiles } = require('./src/facecamPipeline');
 // const rustApi = require('./src/rustPluginClient'); // use this to call GET /players, POST /chests/move, etc.
 // const speech = require('./src/speech');            // use this for TTS/STT
 
@@ -9,8 +10,14 @@ const rustplusClient = require('./src/rustplusClient');
     const app = createServer();
     app.listen(config.port, () => {
       console.log(`[webhook] listening on :${config.port} — give the devs:`);
-      console.log(`          https://YOUR_DOMAIN/webhook?key=${config.webhookSecret}`);
+      console.log(`          ${config.publicBaseUrl}/webhook?key=${config.webhookSecret}`);
     });
+
+    // Safety-net cleanup: catches any facecam images left behind by a crashed
+    // or interrupted pipeline run. The pipeline itself already deletes each
+    // steamId's previous file on every successful run, so this is a backstop,
+    // not the primary cleanup — matters on a disk-constrained droplet.
+    setInterval(() => sweepOldFiles(), 10 * 60 * 1000);
 
     // Rust+ (electrical/smart-switch side). Comment out if not ready yet —
     // the webhook server above works independently of this.

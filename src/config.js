@@ -27,5 +27,24 @@ module.exports = {
   azure: {
     key: process.env.AZURE_KEY || '',
     region: process.env.AZURE_REGION || 'centralus'
+  },
+
+  // Public URL this app is reachable at (through nginx), used to build the
+  // hosted image URL handed to /canvases/<netId>/image. Matches the /rust
+  // location prefix from your nginx config.
+  publicBaseUrl: required('PUBLIC_BASE_URL', 'https://blurbsttv.com/rust'),
+
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  },
+
+  stream: {
+    // Comma-separated fallback chain streamlink will try in order. Lower
+    // resolutions resolve/transfer faster but give the vision model less to
+    // work with for finding a small facecam overlay — tune to taste.
+    quality: process.env.STREAM_QUALITY || '480p,worst',
+    resolveTimeoutMs: Number(process.env.STREAM_RESOLVE_TIMEOUT_MS) || 6000,
+    ffmpegTimeoutMs: Number(process.env.STREAM_FFMPEG_TIMEOUT_MS) || 6000
   }
 };

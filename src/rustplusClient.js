@@ -29,4 +29,17 @@ function connect() {
   rustplus.connect();
 }
 
-module.exports = { rustplus, connect };
+/**
+ * Turns a smart switch on/off by its Rust+ entity ID. Confirmed against a
+ * real working script — turnSmartSwitchOn/Off are real methods on the
+ * rustplus.js instance, no lower-level fallback needed.
+ * @param {string|number} entityId Rust+ smart switch entity ID
+ * @param {boolean} on
+ */
+function setSwitch(entityId, on) {
+  if (!entityId) throw new Error('setSwitch called with no entityId');
+  const id = Number(entityId);
+  return on ? rustplus.turnSmartSwitchOn(id) : rustplus.turnSmartSwitchOff(id);
+}
+
+module.exports = { rustplus, connect, setSwitch };

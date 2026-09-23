@@ -167,6 +167,118 @@ twitchMap.setTwitchUsername('76561198000000000', 'their_twitch_username');
 or just edit `data/steam-twitch-map.json` directly and restart the app (it's only read once
 at startup).
 
+## Feature architecture
+
+Everything beyond the core webhook/plugin-API plumbing lives under `src/features/`,
+one file per feature, built on shared primitives so features don't each
+reinvent the same plumbing:
+
+```
+src/
+  stateStore.js       generic persisted key-value state (counters, one-time setup results)
+  imageHost.js         write/serve/cleanup for any image a feature wants to paint to a canvas
+  centerCrop.js         fast, deterministic center-of-frame crop — no OpenAI call
+  audioGrabber.js       live raw PCM audio stream from a resolved Twitch URL
+  streamListen.js       tool: listen to a steamId's stream for a keyword or fixed duration
+  features/
+    canvasImageUpload.js  paint an arbitrary image URL to a canvas
+    buttonFrameGrab.js    raw full-frame grab + paint (no face detection) — fast path
+    deathCam.js           landmine death counter + instant frame grab of the victim
+    canvasShield.js       nearest-player center-frame grab, paint + reposition in front of you
+    domeOfSilence.js      voice-detection zone around your position -> smart switch trigger
+```
+
+```
+src/
+  stateStore.js       generic persisted key-value state (counters, one-time setup results)
+  gadgetUsage.js       per-gadget, per-person once-only-use tracking (photo booth, security system, ...)
+  imageHost.js         write/serve/cleanup for any image a feature wants to paint to a canvas
+  centerCrop.js         fast, deterministic center-of-frame crop — no OpenAI call
+  audioGrabber.js       live audio pipeline (streamlink piped into ffmpeg), for stream listening
+  streamListen.js       tool: listen to a steamId's stream for a keyword or fixed duration
+  features/
+    canvasImageUpload.js  paint an arbitrary image URL to a canvas
+    buttonFrameGrab.js    button-triggered face-detected capture (calls facecamPipeline directly —
+                           NOT a separate detection path), optionally gated once-per-person per gadget
+    deathCam.js           landmine death counter + instant frame grab of the victim
+    canvasShield.js       nearest-player center-frame grab, paint + reposition in front of you
+    domeOfSilence.js      voice-detection zone around your position -> smart switch trigger
+```
+
+**`buttonFrameGrab.js` uses the exact same face-detection algorithm as everywhere else** —
+it's a thin wrapper around `facecamPipeline.updateFacecamOnCanvas` (untouched), not a
+separate raw-frame path. The photo booth and security system are two examples of "the
+button face-detection tech" used for different purposes; each gets its own independent
+once-per-person limit via `gadgetUsage.js`, scoped by a `gadgetName` string you choose —
+using the photo booth doesn't use up someone's one shot at the security system, even
+though both call the identical underlying pipeline.
+
+**Every feature returns `{ok:true, ...}` or `{ok:false, reason: "..."}`, never throws** —
+consistent with `facecamPipeline.js`, so callers (webhook handlers, manual routes) don't
+need per-feature try/catch.
+
+### Manual vs automated triggers
+
+Each feature is explicit about how it's meant to be triggered:
+
+- **Automated** — driven by a real in-game event, wired into `webhookHandlers.js`.
+  `deathCam` and `domeOfSilence` are wired live by default (both are self-gating: they
+  no-op safely if their precondition isn't met, so it's safe to leave them active before
+  you've finished configuring them). Button-driven captures are left as commented
+  examples in `handleButtonPress` since which physical button drives which gadget is a
+  decision only you can make (set `PHOTO_BOOTH_BUTTON_NET_ID` /
+  `SECURITY_SYSTEM_BUTTON_NET_ID` at the top of that file, or add your own).
+- **Manual** — everything under `/manual/` in `webhookServer.js`. Mostly plain `GET`
+  requests behind `?key=<WEBHOOK_SECRET>` — deliberately the easiest possible thing to
+  bind to a hotkey tool or Stream Deck button (just "open this URL"), no request body.
+  A few genuinely need typed input (a steamId, a URL, a keyword) since there's no way
+  around that — those are still one field, not a form, and every route falls back to
+  its configured default canvas netId so you're typing the minimum each time:
+
+  ```
+  GET /manual/frame-grab/<steamId>?key=...                    (no usage limit)
+  GET /manual/photo-booth/<steamId>?key=...                   (once per person)
+  GET /manual/security-system/<steamId>?key=...               (once per person, separate limit)
+  GET /manual/gadget-usage/<gadgetName>/<steamId>?key=...      (check if already used)
+  GET /manual/gadget-usage/<gadgetName>/<steamId>/reset?key=...(clear it, e.g. for testing)
+  GET /manual/canvas-image?url=...&key=...                    (uses CANVAS_NETID_IMAGE_UPLOAD)
+  GET /manual/canvas-shield?key=...
+  GET /manual/dome/arm?key=...
+  GET /manual/dome/disarm?key=...
+  GET /manual/dome/status?key=...
+  GET /manual/stream-listen/<steamId>?keyword=...&maxDurationMs=...&key=...
+  GET /manual/death-counter?key=...
+  ```
+
+  One real limitation worth knowing: there's no "look up steamId by display name" here,
+  since the plugin API has no endpoint that lists all players regardless of location —
+  only by grid or by radius around a known point. If typing raw steamIDs mid-game turns
+  out to be too slow in practice, worth asking the plugin devs for a
+  `GET /players?name=` style lookup, or keeping a personal cheat-sheet of your regulars'
+  steamIDs mapped to their names (similar to `twitchMap.js`) rather than solving this in
+  code against an API that doesn't support it yet.
+
+### What's implemented vs what needs verifying live
+
+**Confirmed against real production code you provided:**
+- `rustplusClient.setSwitch` — `turnSmartSwitchOn`/`turnSmartSwitchOff` are real,
+  directly-callable methods; no more guessing or fallback needed.
+- `audioGrabber.js` / `streamListen.js` — rewritten to match your working script's proven
+  pattern exactly: streamlink piped into ffmpeg's stdin (not ffmpeg fetching a resolved
+  URL directly), the same low-latency ffmpeg flags, WAV output, `en-US` +
+  `ProfanityOption.Raw` + 250ms end-silence timeout on the Azure side, and the same
+  unpipe-then-kill-ffmpeg-then-kill-streamlink-process-group shutdown order.
+- `deathCam`'s landmine match — now an exact (case-insensitive) match on `"landmine"`,
+  not a fuzzy substring guess.
+
+**Still needs a real test before you rely on it:**
+- **`canvasShield`'s positioning math** (`computeTransformInFrontOfPlayer`) — the yaw
+  calculation is still a best-effort placeholder, not verified against Rust's actual
+  coordinate/rotation conventions. Test against a real canvas and adjust.
+- **`streamListen`'s early-stop-on-keyword** — the pieces are each proven individually now,
+  but stopping mid-stream the moment a keyword is heard (rather than always running to
+  the timeout) hasn't specifically been exercised end-to-end here.
+
 ## Extending
 
 - Add game logic in `src/webhookHandlers.js` (e.g. your `rowSwitchArray` sequencing

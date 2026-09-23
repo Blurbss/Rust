@@ -1,50 +1,14 @@
-const fs = require('fs/promises');
-const path = require('path');
 const config = require('./config');
 const twitchMap = require('./twitchMap');
 const { grabFrameForUser } = require('./frameGrabber');
 const { detectFacecam } = require('./facecamDetector');
 const { cropImageBuffer } = require('./imageCrop');
 const { getJpegDimensions, buildCropFromCenter } = require('./imageDimensions');
+const { writeAndHost } = require('./imageHost');
 const rustApi = require('./rustPluginClient');
-
-const FACECAM_DIR = path.join(__dirname, '..', 'public', 'facecam');
 
 function log(label, startedAt) {
   console.log(`[facecam] ${label}: ${Date.now() - startedAt}ms`);
-}
-
-/** Deletes any previous cropped images for this steamId before writing a new one,
- *  so repeated calls don't accumulate files on disk. */
-async function cleanupPrevious(steamId) {
-  try {
-    const files = await fs.readdir(FACECAM_DIR);
-    const stale = files.filter((f) => f.startsWith(`${steamId}-`));
-    await Promise.all(stale.map((f) => fs.unlink(path.join(FACECAM_DIR, f)).catch(() => {})));
-  } catch (err) {
-    if (err.code !== 'ENOENT') console.warn('[facecam] cleanup warning:', err.message);
-  }
-}
-
-/** Safety-net sweep: deletes any facecam file older than maxAgeMs, regardless of
- *  steamId. Call this on an interval from index.js in case a crash ever leaves
- *  orphaned files behind. */
-async function sweepOldFiles(maxAgeMs = 10 * 60 * 1000) {
-  try {
-    const files = await fs.readdir(FACECAM_DIR);
-    const now = Date.now();
-    await Promise.all(
-      files.map(async (f) => {
-        const full = path.join(FACECAM_DIR, f);
-        const stat = await fs.stat(full).catch(() => null);
-        if (stat && now - stat.mtimeMs > maxAgeMs) {
-          await fs.unlink(full).catch(() => {});
-        }
-      })
-    );
-  } catch (err) {
-    if (err.code !== 'ENOENT') console.warn('[facecam] sweep warning:', err.message);
-  }
 }
 
 /**
@@ -122,11 +86,7 @@ async function updateFacecamOnCanvas(steamId, netId) {
   let publicUrl;
   try {
     const t4 = Date.now();
-    await cleanupPrevious(steamId);
-    const filename = `${steamId}-${Date.now()}.jpg`;
-    await fs.mkdir(FACECAM_DIR, { recursive: true });
-    await fs.writeFile(path.join(FACECAM_DIR, filename), cropped);
-    publicUrl = `${config.publicBaseUrl}/facecam/${filename}`;
+    publicUrl = await writeAndHost(cropped, { subdir: 'facecam', prefix: steamId });
 
     // Validate before handing it to the plugin — a malformed PUBLIC_BASE_URL
     // (unset, empty, missing scheme) would otherwise surface as a generic
@@ -161,4 +121,4 @@ async function updateFacecamOnCanvas(steamId, netId) {
   return { ok: true, url: publicUrl };
 }
 
-module.exports = { updateFacecamOnCanvas, sweepOldFiles };
+module.exports = { updateFacecamOnCanvas };

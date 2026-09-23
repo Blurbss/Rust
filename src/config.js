@@ -73,5 +73,36 @@ module.exports = {
     // A point within this fraction of any edge counts as "near an edge".
     // Set to 0 to disable this check entirely.
     edgeMarginFraction: Number(process.env.FACECAM_EDGE_MARGIN_FRACTION) ?? 0.15
+  },
+
+  // Your own identity, used by features that need to know "where am I" /
+  // "who is me" (Dome of Silence's origin point, Canvas Shield excluding
+  // yourself from "nearest player").
+  myPlayer: {
+    steamId: process.env.MY_STEAM_ID || ''
+  },
+
+  // Canvas net IDs for each feature — set these to the tracked canvas you
+  // want each feature painting to. Separate canvases per feature is simplest;
+  // point two at the same netId if you want them sharing one physical sign.
+  canvases: {
+    buttonFrameGrab: process.env.CANVAS_NETID_BUTTON_FRAME_GRAB || '',
+    deathCam: process.env.CANVAS_NETID_DEATH_CAM || '',
+    canvasShield: process.env.CANVAS_NETID_CANVAS_SHIELD || '',
+    imageUpload: process.env.CANVAS_NETID_IMAGE_UPLOAD || '',
+    photoBooth: process.env.CANVAS_NETID_PHOTO_BOOTH || '',
+    securitySystem: process.env.CANVAS_NETID_SECURITY_SYSTEM || ''
+  },
+
+  domeOfSilence: {
+    radius: Number(process.env.DOME_RADIUS) || 30,
+    // Rust+ smart switch entity ID to trigger when voice is detected inside
+    // the dome. See src/rustplusClient.js — the exact method name for toggling
+    // a switch needs verifying against your installed rustplus.js version.
+    switchEntityId: process.env.DOME_SWITCH_ENTITY_ID || ''
+  },
+
+  streamListen: {
+    defaultMaxDurationMs: Number(process.env.STREAM_LISTEN_MAX_DURATION_MS) || 15000
   }
 };

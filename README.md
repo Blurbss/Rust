@@ -205,13 +205,14 @@ src/
     domeOfSilence.js      voice-detection zone around your position -> smart switch trigger
 ```
 
-**`buttonFrameGrab.js` uses the exact same face-detection algorithm as everywhere else** —
-it's a thin wrapper around `facecamPipeline.updateFacecamOnCanvas` (untouched), not a
-separate raw-frame path. The photo booth and security system are two examples of "the
-button face-detection tech" used for different purposes; each gets its own independent
-once-per-person limit via `gadgetUsage.js`, scoped by a `gadgetName` string you choose —
-using the photo booth doesn't use up someone's one shot at the security system, even
-though both call the identical underlying pipeline.
+**`buttonFrameGrab.js` and `deathCam.js` both use the exact same face-detection algorithm
+as everywhere else** — both are thin wrappers around `facecamPipeline.updateFacecamOnCanvas`
+(untouched), not separate raw-frame paths. The photo booth and security system are two
+examples of "the button face-detection tech" used for different purposes; each gets its
+own independent once-per-person limit via `gadgetUsage.js`, scoped by a `gadgetName`
+string you choose — using the photo booth doesn't use up someone's one shot at the
+security system, even though both call the identical underlying pipeline. Death cam calls
+the same pipeline too, just triggered by a landmine death instead of a button or manual call.
 
 **Every feature returns `{ok:true, ...}` or `{ok:false, reason: "..."}`, never throws** —
 consistent with `facecamPipeline.js`, so callers (webhook handlers, manual routes) don't
@@ -241,7 +242,7 @@ Each feature is explicit about how it's meant to be triggered:
   GET /manual/security-system/<steamId>?key=...               (once per person, separate limit)
   GET /manual/gadget-usage/<gadgetName>/<steamId>?key=...      (check if already used)
   GET /manual/gadget-usage/<gadgetName>/<steamId>/reset?key=...(clear it, e.g. for testing)
-  GET /manual/canvas-image?url=...&key=...                    (uses CANVAS_NETID_IMAGE_UPLOAD)
+  GET /manual/canvas-image?netId=...&url=...&key=...          (no default — always pass netId)
   GET /manual/canvas-shield?key=...
   GET /manual/dome/arm?key=...
   GET /manual/dome/disarm?key=...

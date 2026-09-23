@@ -112,13 +112,13 @@ function createServer() {
   });
 
   // Canvas image upload — paint an arbitrary URL.
-  //   GET /manual/canvas-image?url=https://...&key=...
-  //   GET /manual/canvas-image?url=https://...&netId=224081304&key=...
+  // Canvas image upload — paint an arbitrary URL to an arbitrary canvas.
+  // Deliberately no default netId here: you always specify which canvas.
+  //   GET /manual/canvas-image?netId=224081304&url=https://...&key=...
   app.get('/manual/canvas-image', verifySecret, async (req, res) => {
-    const netId = req.query.netId || config.canvases.imageUpload;
-    if (!netId) return res.status(400).json({ error: 'no netId given and CANVAS_NETID_IMAGE_UPLOAD not set' });
+    if (!req.query.netId) return res.status(400).json({ error: 'missing ?netId=' });
     if (!req.query.url) return res.status(400).json({ error: 'missing ?url=' });
-    const result = await canvasImageUpload.uploadImageToCanvas(netId, req.query.url);
+    const result = await canvasImageUpload.uploadImageToCanvas(req.query.netId, req.query.url);
     res.status(result.ok ? 200 : 422).json(result);
   });
 

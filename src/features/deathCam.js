@@ -13,10 +13,7 @@
 
 const config = require('../config');
 const state = require('../stateStore');
-const twitchMap = require('../twitchMap');
-const { grabFrameForUser } = require('../frameGrabber');
-const { writeAndHost } = require('../imageHost');
-const rustApi = require('../rustPluginClient');
+const facecamPipeline = require('../facecamPipeline');
 
 const COUNTER_KEY = 'landmineDeaths';
 
@@ -34,7 +31,7 @@ function getLandmineDeathCount() {
  * in webhookHandlers.js's handleButtonPress example.
  *
  * @param {object} data the player_death event's `data` object
- * @returns {Promise<{ok:true,count:number,url:string}|{ok:false,reason:string}|{ok:true,skipped:true}>}
+ * @returns {Promise<{ok:true,count:number,url:string}|{ok:false,reason:string,count?:number}|{ok:true,skipped:true}>}
  */
 async function handlePlayerDeathForDeathCam(data) {
   if (!isLandmineDeath(data)) {
@@ -47,27 +44,18 @@ async function handlePlayerDeathForDeathCam(data) {
 
   const victimSteamId = data.victim?.steamId;
   if (!victimSteamId) {
-    return { ok: false, reason: 'landmine death event had no victim steamId' };
+    return { ok: false, reason: 'landmine death event had no victim steamId', count: newCount };
   }
 
   const netId = config.canvases.deathCam;
   if (!netId) {
-    return { ok: false, reason: 'CANVAS_NETID_DEATH_CAM is not set' };
+    return { ok: false, reason: 'CANVAS_NETID_DEATH_CAM is not set', count: newCount };
   }
 
-  const twitchUsername = twitchMap.getTwitchUsername(victimSteamId);
-  if (!twitchUsername) {
-    return { ok: false, reason: `no twitch username mapped for steamId ${victimSteamId}`, count: newCount };
-  }
-
-  try {
-    const frame = await grabFrameForUser(twitchUsername);
-    const url = await writeAndHost(frame, { subdir: 'deathcam', prefix: victimSteamId });
-    await rustApi.paintCanvas(netId, url);
-    return { ok: true, count: newCount, url };
-  } catch (err) {
-    return { ok: false, reason: err.message, count: newCount };
-  }
+  // Same face-detection pipeline as everywhere else — not a raw frame grab.
+  // updateFacecamOnCanvas already handles the twitchMap lookup internally.
+  const result = await facecamPipeline.updateFacecamOnCanvas(victimSteamId, netId);
+  return { ...result, count: newCount };
 }
 
 module.exports = { handlePlayerDeathForDeathCam, getLandmineDeathCount, isLandmineDeath };

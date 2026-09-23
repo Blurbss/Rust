@@ -89,7 +89,6 @@ module.exports = {
     buttonFrameGrab: process.env.CANVAS_NETID_BUTTON_FRAME_GRAB || '',
     deathCam: process.env.CANVAS_NETID_DEATH_CAM || '',
     canvasShield: process.env.CANVAS_NETID_CANVAS_SHIELD || '',
-    imageUpload: process.env.CANVAS_NETID_IMAGE_UPLOAD || '',
     photoBooth: process.env.CANVAS_NETID_PHOTO_BOOTH || '',
     securitySystem: process.env.CANVAS_NETID_SECURITY_SYSTEM || ''
   },

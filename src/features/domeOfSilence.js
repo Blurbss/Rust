@@ -14,12 +14,12 @@
 // than just forgetting about it, so you don't leak orphaned subscriptions on
 // their server.
 
-const config = require('../config');
-const state = require('../stateStore');
-const rustApi = require('../rustPluginClient');
-const rustplusClient = require('../rustplusClient');
+const config = require("../config");
+const state = require("../stateStore");
+const rustApi = require("../rustPluginClient");
+const rustplusClient = require("../rustplusClient");
 
-const STATE_KEY = 'domeOfSilence';
+const STATE_KEY = "domeOfSilence";
 
 /**
  * Arms the dome: reads your current position and creates a circular voice
@@ -28,12 +28,15 @@ const STATE_KEY = 'domeOfSilence';
  */
 async function arm() {
   if (!config.myPlayer.steamId) {
-    return { ok: false, reason: 'MY_STEAM_ID is not set' };
+    return { ok: false, reason: "MY_STEAM_ID is not set" };
   }
 
   const existing = state.get(STATE_KEY);
   if (existing) {
-    return { ok: false, reason: `already armed (subscription ${existing.subscriptionId}) — call disarm() first` };
+    return {
+      ok: false,
+      reason: `already armed (subscription ${existing.subscriptionId}) — call disarm() first`,
+    };
   }
 
   let myLook;
@@ -51,10 +54,13 @@ async function arm() {
       url: webhookUrl,
       x: myLook.eyes.x,
       z: myLook.eyes.z,
-      radius: config.domeOfSilence.radius
+      radius: config.domeOfSilence.radius,
     });
   } catch (err) {
-    return { ok: false, reason: `failed to create subscription: ${err.message}` };
+    return {
+      ok: false,
+      reason: `failed to create subscription: ${err.message}`,
+    };
   }
 
   state.set(STATE_KEY, {
@@ -62,7 +68,7 @@ async function arm() {
     originX: myLook.eyes.x,
     originZ: myLook.eyes.z,
     radius: config.domeOfSilence.radius,
-    armedAt: Date.now()
+    armedAt: Date.now(),
   });
 
   return { ok: true, subscriptionId: subscription.id };
@@ -72,7 +78,7 @@ async function arm() {
 async function disarm() {
   const existing = state.get(STATE_KEY);
   if (!existing) {
-    return { ok: false, reason: 'not currently armed' };
+    return { ok: false, reason: "not currently armed" };
   }
 
   try {
@@ -80,7 +86,10 @@ async function disarm() {
   } catch (err) {
     // Still clear local state even if the delete failed (e.g. already gone
     // on their side) — don't get permanently stuck unable to re-arm.
-    console.warn('[domeOfSilence] deleteSubscription failed, clearing local state anyway:', err.message);
+    console.warn(
+      "[domeOfSilence] deleteSubscription failed, clearing local state anyway:",
+      err.message,
+    );
   }
 
   state.remove(STATE_KEY);
@@ -103,19 +112,26 @@ function isArmed() {
 async function handleVoiceStateForDome(data) {
   const dome = state.get(STATE_KEY);
   if (!dome) return { ok: true, skipped: true };
-  if (!data.speaking) return { ok: true, skipped: true };
 
   // Don't trigger on your own voice.
-  if (data.player?.steamId === config.myPlayer.steamId) return { ok: true, skipped: true };
+  //if (data.player?.steamId === config.myPlayer.steamId)
+  //  return { ok: true, skipped: true };
 
   const entityId = config.domeOfSilence.switchEntityId;
   if (!entityId) {
-    return { ok: false, reason: 'DOME_SWITCH_ENTITY_ID is not set' };
+    return { ok: false, reason: "DOME_SWITCH_ENTITY_ID is not set" };
   }
 
   try {
-    await rustplusClient.setSwitch(entityId, true);
-    console.log(`[domeOfSilence] voice detected from ${data.player?.name}, switch triggered`);
+    if (data.speaking) await rustplusClient.setSwitch(entityId, true);
+    else {
+      setTimeout(async () => {
+        await rustplusClient.setSwitch(entityId, false);
+      }, 3000);
+    }
+    console.log(
+      `[domeOfSilence] voice detected from ${data.player?.name}, switch triggered`,
+    );
     return { ok: true, triggeredBy: data.player };
   } catch (err) {
     return { ok: false, reason: `failed to trigger switch: ${err.message}` };

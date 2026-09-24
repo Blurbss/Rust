@@ -103,5 +103,32 @@ module.exports = {
 
   streamListen: {
     defaultMaxDurationMs: Number(process.env.STREAM_LISTEN_MAX_DURATION_MS) || 15000
+  },
+
+  elevenLabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY || '',
+    // Default from the provided example script — override per-call or via env.
+    voiceId: process.env.ELEVENLABS_VOICE_ID || 'oR4uRy4fHDUGGISL0Rev'
+  },
+
+  tts: {
+    // < 1 lowers pitch. 0.92 is "slight" per the request; tune to taste.
+    pitchFactor: Number(process.env.TTS_PITCH_FACTOR) || 0.92,
+
+    // Movement-aware placement: the plugin's player data exposes LOOK
+    // direction (paired with eyes), not movement direction or speed — a
+    // player can strafe or walk backward while looking elsewhere. So
+    // "are they moving, and how fast" is inferred by sampling position
+    // twice, sampleIntervalMs apart, rather than trusted from a single
+    // snapshot's direction field.
+    sampleIntervalMs: Number(process.env.TTS_SAMPLE_INTERVAL_MS) || 300,
+    // Below this horizontal speed (m/s), treated as "not really traveling" —
+    // filters out idle jitter/noise between the two position samples.
+    movementThresholdMps: Number(process.env.TTS_MOVEMENT_THRESHOLD_MPS) || 0.5,
+    // How far ahead (in time) to project a moving player's position, using
+    // their measured velocity, so the sound lands in front of them.
+    leadTimeSeconds: Number(process.env.TTS_LEAD_TIME_SECONDS) || 1.5,
+
+    defaultRange: Number(process.env.TTS_DEFAULT_RANGE) || 30
   }
 };

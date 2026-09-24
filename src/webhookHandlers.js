@@ -4,6 +4,7 @@
 const buttonFrameGrab = require('./features/buttonFrameGrab');
 const deathCam = require('./features/deathCam');
 const domeOfSilence = require('./features/domeOfSilence');
+const { playTTS } = require('./features/ttsAudio');
 const config = require('./config');
 
 // TODO: set these to your actual in-game button net IDs (blurbs.netid while
@@ -49,6 +50,16 @@ function handleButtonPress(data /* { netId, position, grid, player } */, envelop
   // For a button-triggered capture with NO once-per-person limit, omit
   // gadgetName entirely:
   // buttonFrameGrab.triggerButtonFrameGrab(data.player.steamId, someNetId).then(...)
+
+  // Example: play a one-shot TTS line at whoever pressed the button,
+  // projected ahead of them if they're moving.
+  // const TTS_BUTTON_NET_ID = '';
+  // if (TTS_BUTTON_NET_ID && data.netId === TTS_BUTTON_NET_ID) {
+  //   playTTS('Intruder detected.', { steamId: data.player.steamId })
+  //     .then((result) => {
+  //       if (!result.ok) console.warn('[tts] failed:', result.reason);
+  //     });
+  // }
 }
 
 function handlePlayerDeath(data /* { victim, position, grid, attacker, weapon, damageType } */, envelope) {
@@ -77,10 +88,28 @@ function handleVoiceState(data /* { player, speaking, position, grid } */, envel
   });
 }
 
+// chest_item_added / chest_item_removed: new events, exact `data` shape
+// wasn't specified beyond the event names existing. Logging the full object
+// on first real events will show you the actual fields — likely something
+// built from the same item shape GET /chests/<netId> already uses
+// (itemId, shortname, amount, position, skin, name) plus the chest's own
+// netId, but don't hardcode field access until you've confirmed it.
+function handleChestItemAdded(data, envelope) {
+  console.log('[chest_item_added]', JSON.stringify(data));
+  // TODO: once the real shape is confirmed, react to it here.
+}
+
+function handleChestItemRemoved(data, envelope) {
+  console.log('[chest_item_removed]', JSON.stringify(data));
+  // TODO: once the real shape is confirmed, react to it here.
+}
+
 const handlers = {
   button_press: handleButtonPress,
   player_death: handlePlayerDeath,
-  voice_state: handleVoiceState
+  voice_state: handleVoiceState,
+  chest_item_added: handleChestItemAdded,
+  chest_item_removed: handleChestItemRemoved
 };
 
 /** Dispatches a decoded {event, timestamp, data} envelope to its handler. */

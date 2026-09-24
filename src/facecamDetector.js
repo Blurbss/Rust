@@ -88,19 +88,25 @@ function extractJson(text) {
  * @param {Buffer} imageBuffer JPEG frame
  * @param {{width:number,height:number}} dims actual pixel dimensions of imageBuffer
  *   (kept for signature compatibility; not directly used since coordinates are fractional)
+ * @param {string} [streamerHint] optional outlier-case addition from streamerHints.js,
+ *   appended to the system prompt for THIS call only. When omitted, the prompt sent
+ *   is byte-identical to every other call — this never alters detection for anyone
+ *   this hint isn't specifically written for.
  * @returns {Promise<{found:false}|{found:true,cx:number,cy:number,width:number,height:number}>}
  *   cx/cy are the fractional (0.0-1.0) CENTER point of the face; width/height are rough
  *   independent fractional size estimates (not assumed square — real overlays rarely are).
  *   Center-point estimation is a task vision models handle far more reliably than precise
  *   box-edge regression.
  */
-async function detectFacecam(imageBuffer, dims) {
+async function detectFacecam(imageBuffer, dims, streamerHint) {
   if (!config.openai.apiKey) {
     throw new Error('OPENAI_API_KEY is not set');
   }
 
   const base64 = imageBuffer.toString('base64');
   const userText = 'Find the facecam in this frame, if any. Return its center point (cx, cy) and rough width/height, as independent fractions of the image (0.0-1.0) — do not assume a square shape.';
+
+  const systemPrompt = streamerHint ? `${SYSTEM_PROMPT}\n\n${streamerHint}` : SYSTEM_PROMPT;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -111,7 +117,7 @@ async function detectFacecam(imageBuffer, dims) {
     body: JSON.stringify({
       model: config.openai.model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         {
           role: 'user',
           content: [

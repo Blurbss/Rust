@@ -9,6 +9,9 @@ const canvasShield = require('./features/canvasShield');
 const domeOfSilence = require('./features/domeOfSilence');
 const deathCam = require('./features/deathCam');
 const gadgetUsage = require('./gadgetUsage');
+const rustApi = require('./rustPluginClient');
+const voiceMap = require('./voiceMap');
+const { playTTS } = require('./features/ttsAudio');
 const { listenToStream } = require('./streamListen');
 
 function createServer() {
@@ -131,20 +134,29 @@ function createServer() {
     res.status(result.ok ? 200 : 422).json(result);
   });
 
-  // Dome of Silence arm/disarm/status.
-  //   GET /manual/dome/arm?key=...
-  //   GET /manual/dome/disarm?key=...
-  //   GET /manual/dome/status?key=...
-  app.get('/manual/dome/arm', verifySecret, async (req, res) => {
-    const result = await domeOfSilence.arm();
+  // Dome of Silence arm/disarm/status — now per named zone, so you can run
+  // several independent VOIP detection zones at once.
+  //   GET /manual/dome/arm/base?key=...
+  //   GET /manual/dome/arm/outpost?radius=15&switchEntityId=99999&key=...
+  //   GET /manual/dome/disarm/base?key=...
+  //   GET /manual/dome/status?key=...          (lists all armed zones)
+  //   GET /manual/dome/status/base?key=...      (checks one specific zone)
+  app.get('/manual/dome/arm/:zoneName', verifySecret, async (req, res) => {
+    const opts = {};
+    if (req.query.radius) opts.radius = Number(req.query.radius);
+    if (req.query.switchEntityId) opts.switchEntityId = req.query.switchEntityId;
+    const result = await domeOfSilence.arm(req.params.zoneName, opts);
     res.status(result.ok ? 200 : 422).json(result);
   });
-  app.get('/manual/dome/disarm', verifySecret, async (req, res) => {
-    const result = await domeOfSilence.disarm();
+  app.get('/manual/dome/disarm/:zoneName', verifySecret, async (req, res) => {
+    const result = await domeOfSilence.disarm(req.params.zoneName);
     res.status(result.ok ? 200 : 422).json(result);
   });
   app.get('/manual/dome/status', verifySecret, (req, res) => {
-    res.json({ armed: domeOfSilence.isArmed() });
+    res.json({ armedZones: domeOfSilence.listArmedZones() });
+  });
+  app.get('/manual/dome/status/:zoneName', verifySecret, (req, res) => {
+    res.json({ armed: domeOfSilence.isArmed(req.params.zoneName) });
   });
 
   // Stream listen — blocks up to maxDurationMs waiting for a transcript or
@@ -164,6 +176,140 @@ function createServer() {
   //   GET /manual/death-counter?key=...
   app.get('/manual/death-counter', verifySecret, (req, res) => {
     res.json({ landmineDeaths: deathCam.getLandmineDeathCount() });
+  });
+
+  // ---------------------------------------------------------------------
+  // NEW API SURFACE (added via Discord announcement) — raw pass-throughs
+  // to rustPluginClient, for testing rather than tied to a specific feature.
+  // ---------------------------------------------------------------------
+
+  // Richer player info. Response shape is UNCONFIRMED here — the
+  // announcement linked a screenshot, not text. This route exists so you can
+  // hit it and see the real fields for yourself.
+  //   GET /manual/player-info/<steamId>?key=...
+  app.get('/manual/player-info/:steamId', verifySecret, async (req, res) => {
+    try {
+      res.json(await rustApi.getPlayer(req.params.steamId));
+    } catch (err) {
+      res.status(422).json({ ok: false, reason: err.message });
+    }
+  });
+
+  // Player-attached canvas (static or spinning) and its removal.
+  //   GET /manual/player-canvas/<steamId>?url=...&key=...
+  //   GET /manual/player-canvas/<steamId>?url=...&spinning=true&count=4&spinSpeed=45&distance=2&key=...
+  //   GET /manual/player-canvas/<steamId>/remove?key=...
+  app.get('/manual/player-canvas/:steamId', verifySecret, async (req, res) => {
+    if (!req.query.url) return res.status(400).json({ error: 'missing ?url=' });
+
+    const opts = { url: req.query.url };
+    if (req.query.raw !== undefined) opts.raw = req.query.raw === 'true';
+    if (req.query.distance !== undefined) opts.distance = Number(req.query.distance);
+    if (req.query.prefab !== undefined) opts.prefab = req.query.prefab;
+    if (req.query.spinning !== undefined) opts.spinning = req.query.spinning === 'true';
+    if (req.query.count !== undefined) opts.count = Number(req.query.count);
+    if (req.query.spinSpeed !== undefined) opts.spinSpeed = Number(req.query.spinSpeed);
+
+    try {
+      res.status(201).json(await rustApi.attachPlayerCanvas(req.params.steamId, opts));
+    } catch (err) {
+      res.status(422).json({ ok: false, reason: err.message });
+    }
+  });
+  app.get('/manual/player-canvas/:steamId/remove', verifySecret, async (req, res) => {
+    try {
+      res.json(await rustApi.removePlayerCanvas(req.params.steamId));
+    } catch (err) {
+      res.status(422).json({ ok: false, reason: err.message });
+    }
+  });
+
+  // One-time proximity audio. This is the one manual route that ISN'T GET —
+  // it needs an actual audio file as the request body, so it can't be a bare
+  // hotkey URL. express.raw() is scoped to just this route so the audio
+  // bytes don't get mangled by the global express.json() parser.
+  //   curl -X POST "https://.../manual/play-audio?x=0&y=0&z=0&range=50&key=..." --data-binary @clip.mp3
+  app.post(
+    '/manual/play-audio',
+    verifySecret,
+    express.raw({ type: '*/*', limit: '32mb' }),
+    async (req, res) => {
+      const { x, y, z, range } = req.query;
+      if (x === undefined || y === undefined || z === undefined) {
+        return res.status(400).json({ error: 'missing ?x=&y=&z=' });
+      }
+      if (!req.body || !req.body.length) {
+        return res.status(400).json({ error: 'missing audio body' });
+      }
+      try {
+        const result = await rustApi.playAudioAt(
+          req.body,
+          Number(x),
+          Number(y),
+          Number(z),
+          range !== undefined ? Number(range) : undefined
+        );
+        res.status(202).json(result);
+      } catch (err) {
+        res.status(422).json({ ok: false, reason: err.message });
+      }
+    }
+  );
+
+  // Curse — genuinely undocumented beyond the endpoint existing. No known
+  // request/response shape, so this is exploratory: hit it and see what
+  // comes back before building anything on top of it.
+  //   GET /manual/curse/<steamId>?key=...
+  //   GET /manual/curse/<steamId>/remove?key=...
+  app.get('/manual/curse/:steamId', verifySecret, async (req, res) => {
+    try {
+      res.json(await rustApi.curseSet(req.params.steamId, undefined));
+    } catch (err) {
+      res.status(422).json({ ok: false, reason: err.message });
+    }
+  });
+  app.get('/manual/curse/:steamId/remove', verifySecret, async (req, res) => {
+    try {
+      res.json(await rustApi.curseClear(req.params.steamId));
+    } catch (err) {
+      res.status(422).json({ ok: false, reason: err.message });
+    }
+  });
+
+  // One-shot TTS: generate speech, apply pitch-down/reverb, play it at a
+  // coordinate OR at a player (movement-aware — projects ahead of them if
+  // they're actually traveling; see config.js's tts section for why that
+  // needs two position samples rather than trusting a single snapshot).
+  //   GET /manual/tts?text=hello&x=100&y=0&z=200&key=...
+  //   GET /manual/tts?text=hello&steamId=76561198000000000&key=...
+  //   GET /manual/tts?text=hello&steamId=...&voice=pirate&key=...
+  //   GET /manual/tts?text=hello&steamId=...&reverb=false&pitchDown=false&range=50&key=...
+  app.get('/manual/tts', verifySecret, async (req, res) => {
+    if (!req.query.text) return res.status(400).json({ error: 'missing ?text=' });
+
+    let target;
+    if (req.query.steamId) {
+      target = { steamId: req.query.steamId };
+    } else if (req.query.x !== undefined && req.query.y !== undefined && req.query.z !== undefined) {
+      target = { x: Number(req.query.x), y: Number(req.query.y), z: Number(req.query.z) };
+    } else {
+      return res.status(400).json({ error: 'need either ?steamId= or ?x=&y=&z=' });
+    }
+
+    const opts = {};
+    if (req.query.pitchDown !== undefined) opts.pitchDown = req.query.pitchDown === 'true';
+    if (req.query.reverb !== undefined) opts.reverb = req.query.reverb === 'true';
+    if (req.query.range !== undefined) opts.range = Number(req.query.range);
+    if (req.query.voice) opts.voiceName = req.query.voice;
+    if (req.query.voiceId) opts.voiceId = req.query.voiceId;
+
+    const result = await playTTS(req.query.text, target, opts);
+    res.status(result.ok ? 200 : 422).json(result);
+  });
+
+  //   GET /manual/voices?key=...
+  app.get('/manual/voices', verifySecret, (req, res) => {
+    res.json({ voices: voiceMap.listVoiceNames() });
   });
 
   app.get('/healthz', (req, res) => res.json({ ok: true }));

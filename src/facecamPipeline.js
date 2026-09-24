@@ -1,5 +1,6 @@
 const config = require('./config');
 const twitchMap = require('./twitchMap');
+const streamerHints = require('./streamerHints');
 const { grabFrameForUser } = require('./frameGrabber');
 const { detectFacecam } = require('./facecamDetector');
 const { cropImageBuffer } = require('./imageCrop');
@@ -45,7 +46,8 @@ async function updateFacecamOnCanvas(steamId, netId) {
   let bbox;
   try {
     const t2 = Date.now();
-    bbox = await detectFacecam(frame, dims);
+    const hint = streamerHints.getHint(twitchUsername);
+    bbox = await detectFacecam(frame, dims, hint);
     log('detect facecam', t2);
   } catch (err) {
     return { ok: false, reason: `facecam detection failed: ${err.message}` };

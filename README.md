@@ -280,6 +280,83 @@ Each feature is explicit about how it's meant to be triggered:
   but stopping mid-stream the moment a keyword is heard (rather than always running to
   the timeout) hasn't specifically been exercised end-to-end here.
 
+## Per-streamer detection hints (outlier cases)
+
+`src/streamerHints.js` — same load-once/write-through JSON pattern as `twitchMap.js` —
+lets you add a note to the facecam-detection prompt for one specific streamer whose
+overlay the generic prompt can't handle, without touching that shared prompt or
+affecting anyone else's detection.
+
+**How it's isolated:** `facecamDetector.js`'s `detectFacecam()` takes an optional
+`streamerHint` string as its third argument. When omitted (the case for every
+streamer without an entry in `data/streamer-hints.json`), the exact request sent to
+OpenAI is byte-identical to before this mechanism existed — verified by capturing the
+actual request body in testing, not just inspecting the code. When present, the hint
+is appended after the shared prompt, only for that one call.
+
+Currently configured: **TheBurntPeanut**, a VTuber whose avatar is a peanut with his
+real eyes and mouth composited onto the shell — a shape the generic "look for a face"
+prompt doesn't recognize as one. The hint tells the model to look for real human eyes
+and mouth on a peanut-shaped body regardless of costume, and that this streamer's
+overlay sits in the bottom-left. Edit `data/streamer-hints.json` directly (keyed by
+lowercased twitch username) to add more, or use `streamerHints.setHint(username, text)`.
+
+## One-shot TTS
+
+`src/features/ttsAudio.js` exports `playTTS(text, target, opts)`:
+
+1. Generates speech via ElevenLabs (`src/elevenLabsTTS.js`) — request shape confirmed
+   against two real working scripts, not guessed.
+2. Applies pitch-down and/or reverb via ffmpeg (`src/audioEffects.js`) — **not** a
+   real Web Audio API port, deliberately. A Node port capable of `ConvolverNode` pulls
+   in a native, compiled speaker-output binding meant for a machine with a real sound
+   card doing real-time playback — the wrong shape of dependency for a headless droplet
+   that only needs processed bytes to hand to the plugin's `/play` endpoint (which
+   itself accepts "mp3, or anything ffmpeg reads"). Reverb is an `aecho`-based
+   approximation (multiple delayed, decaying taps) — a well-known cheap substitute for
+   true convolution reverb, not identical to it. Pitch-down uses `asetrate` (which
+   reinterprets the sample rate — changes pitch AND speed) followed by `aresample` +
+   `atempo` to restore the original duration, so the result is pitch-shifted only.
+   All three filter chains (pitch-only, reverb-only, both) were verified against a
+   real ffmpeg run before shipping.
+3. Resolves where to play it — either a direct `{x,y,z}`, or `{steamId}` for
+   movement-aware placement (see below).
+4. Sends the processed clip to `rustPluginClient.playAudioAt()`.
+
+**Why player-relative placement needs two position samples, not one:** the confirmed
+`GET /players/{steamId}` response includes a `direction` field, but it's paired with
+`eyes` — that's LOOK direction, not movement direction. A player can strafe or walk
+backward while looking elsewhere, and there's no velocity/speed field at all. So
+"are they traveling, and how fast" is answered by sampling `position` twice,
+`TTS_SAMPLE_INTERVAL_MS` apart, and computing real displacement — this is what
+`measureMovement()` does. If measured speed is below `TTS_MOVEMENT_THRESHOLD_MPS`,
+the clip plays right on their current position; otherwise it's projected
+`TTS_LEAD_TIME_SECONDS` ahead using their measured velocity — an actual lead/intercept
+calculation, not a fixed "a few meters ahead" guess. This does mean player-relative
+calls take at least `TTS_SAMPLE_INTERVAL_MS` (default 300ms) before generation even
+starts, which is a real tradeoff for accurate placement instead of a static assumption.
+
+**Testing:**
+```
+GET /manual/tts?text=hello&x=100&y=0&z=200&key=...
+GET /manual/tts?text=hello&steamId=76561198000000000&key=...
+GET /manual/tts?text=hello&steamId=...&voice=pirate&key=...
+GET /manual/tts?text=hello&steamId=...&reverb=false&pitchDown=false&range=50&key=...
+GET /manual/voices?key=...                     (lists known ?voice= names)
+```
+
+**Voice names:** `src/voiceMap.js` maps a friendly name ("pirate", "robot") to an
+ElevenLabs voice ID, same load-once/write-through pattern as `twitchMap.js`. Edit
+`data/voice-map.json` directly (restart to pick up changes — it's only read at
+startup) or call `voiceMap.setVoiceId(name, id)`. Pass `voiceName` or `voiceId` to
+`playTTS()` — not both; giving both is treated as an error rather than silently
+picking one, and an unmapped `voiceName` returns a reason listing the names that
+actually exist rather than falling back to a default silently.
+
+**Wiring to an event:** not wired to anything automatically — there's a commented
+example in `handleButtonPress` in `src/webhookHandlers.js` showing how to call
+`playTTS()` fire-and-forget the same way other button-triggered features are wired.
+
 ## Extending
 
 - Add game logic in `src/webhookHandlers.js` (e.g. your `rowSwitchArray` sequencing

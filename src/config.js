@@ -1,9 +1,9 @@
-require('dotenv').config();
+require("dotenv").config();
 
 function required(name, fallback) {
   const raw = process.env[name];
-  const val = raw === undefined || raw === '' ? fallback : raw;
-  if (val === undefined || val === '') {
+  const val = raw === undefined || raw === "" ? fallback : raw;
+  if (val === undefined || val === "") {
     console.warn(`[config] Warning: ${name} is not set`);
   }
   return val;
@@ -11,46 +11,46 @@ function required(name, fallback) {
 
 module.exports = {
   port: Number(process.env.PORT) || 3000,
-  webhookSecret: required('WEBHOOK_SECRET'),
+  webhookSecret: required("WEBHOOK_SECRET"),
 
   rustApi: {
-    baseUrl: required('RUST_API_BASE_URL'),
-    apiKey: required('RUST_API_KEY')
+    baseUrl: required("RUST_API_BASE_URL"),
+    apiKey: required("RUST_API_KEY"),
   },
 
   rustPlus: {
-    serverIp: process.env.RUSTPLUS_SERVER_IP || '',
-    serverPort: process.env.RUSTPLUS_SERVER_PORT || '',
-    playerId: process.env.RUSTPLUS_PLAYER_ID || '',
-    playerToken: process.env.RUSTPLUS_PLAYER_TOKEN || ''
+    serverIp: process.env.RUSTPLUS_SERVER_IP || "",
+    serverPort: process.env.RUSTPLUS_SERVER_PORT || "",
+    playerId: process.env.RUSTPLUS_PLAYER_ID || "",
+    playerToken: process.env.RUSTPLUS_PLAYER_TOKEN || "",
   },
 
   azure: {
-    key: process.env.AZURE_KEY || '',
-    region: process.env.AZURE_REGION || 'centralus'
+    key: process.env.AZURE_KEY || "",
+    region: process.env.AZURE_REGION || "centralus",
   },
 
   // Public URL this app is reachable at (through nginx), used to build the
   // hosted image URL handed to /canvases/<netId>/image. Matches the /rust
   // location prefix from your nginx config.
-  publicBaseUrl: required('PUBLIC_BASE_URL', 'https://blurbsttv.com/rust'),
+  publicBaseUrl: required("PUBLIC_BASE_URL", "https://blurbsttv.com/rust"),
 
   openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    apiKey: process.env.OPENAI_API_KEY || "",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     // "low" is faster/cheaper but downsamples internally before analysis, which
     // can make coordinate accuracy worse. If clamped/rejected boxes are common
     // in your logs, try "high" — costs more latency for better spatial accuracy.
-    imageDetail: process.env.OPENAI_IMAGE_DETAIL || 'low'
+    imageDetail: process.env.OPENAI_IMAGE_DETAIL || "low",
   },
 
   stream: {
     // Comma-separated fallback chain streamlink will try in order. Lower
     // resolutions resolve/transfer faster but give the vision model less to
     // work with for finding a small facecam overlay — tune to taste.
-    quality: process.env.STREAM_QUALITY || '480p,worst',
+    quality: process.env.STREAM_QUALITY || "480p,worst",
     resolveTimeoutMs: Number(process.env.STREAM_RESOLVE_TIMEOUT_MS) || 6000,
-    ffmpegTimeoutMs: Number(process.env.STREAM_FFMPEG_TIMEOUT_MS) || 6000
+    ffmpegTimeoutMs: Number(process.env.STREAM_FFMPEG_TIMEOUT_MS) || 6000,
   },
 
   facecamCrop: {
@@ -72,25 +72,26 @@ module.exports = {
     // than trusting the model's own edge/center judgment on this one point.
     // A point within this fraction of any edge counts as "near an edge".
     // Set to 0 to disable this check entirely.
-    edgeMarginFraction: Number(process.env.FACECAM_EDGE_MARGIN_FRACTION) ?? 0.15
+    edgeMarginFraction:
+      Number(process.env.FACECAM_EDGE_MARGIN_FRACTION) ?? 0.15,
   },
 
   // Your own identity, used by features that need to know "where am I" /
   // "who is me" (Dome of Silence's origin point, Canvas Shield excluding
   // yourself from "nearest player").
   myPlayer: {
-    steamId: process.env.MY_STEAM_ID || ''
+    steamId: process.env.MY_STEAM_ID || "",
   },
 
   // Canvas net IDs for each feature — set these to the tracked canvas you
   // want each feature painting to. Separate canvases per feature is simplest;
   // point two at the same netId if you want them sharing one physical sign.
   canvases: {
-    buttonFrameGrab: process.env.CANVAS_NETID_BUTTON_FRAME_GRAB || '',
-    deathCam: process.env.CANVAS_NETID_DEATH_CAM || '',
-    canvasShield: process.env.CANVAS_NETID_CANVAS_SHIELD || '',
-    photoBooth: process.env.CANVAS_NETID_PHOTO_BOOTH || '',
-    securitySystem: process.env.CANVAS_NETID_SECURITY_SYSTEM || ''
+    buttonFrameGrab: process.env.CANVAS_NETID_BUTTON_FRAME_GRAB || "",
+    deathCam: process.env.CANVAS_NETID_DEATH_CAM || "",
+    canvasShield: process.env.CANVAS_NETID_CANVAS_SHIELD || "",
+    photoBooth: process.env.CANVAS_NETID_PHOTO_BOOTH || "",
+    securitySystem: process.env.CANVAS_NETID_SECURITY_SYSTEM || "",
   },
 
   domeOfSilence: {
@@ -98,23 +99,24 @@ module.exports = {
     // Rust+ smart switch entity ID to trigger when voice is detected inside
     // the dome. See src/rustplusClient.js — the exact method name for toggling
     // a switch needs verifying against your installed rustplus.js version.
-    switchEntityId: process.env.DOME_SWITCH_ENTITY_ID || ''
+    switchEntityId: process.env.DOME_SWITCH_ENTITY_ID || "",
   },
 
   streamListen: {
-    defaultMaxDurationMs: Number(process.env.STREAM_LISTEN_MAX_DURATION_MS) || 15000
+    defaultMaxDurationMs:
+      Number(process.env.STREAM_LISTEN_MAX_DURATION_MS) || 15000,
   },
 
   elevenLabs: {
-    apiKey: process.env.ELEVENLABS_API_KEY || '',
+    apiKey: process.env.ELEVENLABS_API_KEY || "",
     // Default from the provided example script — override per-call or via env.
-    voiceId: process.env.ELEVENLABS_VOICE_ID || 'oR4uRy4fHDUGGISL0Rev',
+    voiceId: process.env.ELEVENLABS_VOICE_ID || "oR4uRy4fHDUGGISL0Rev",
     // Used when a voice in voice-map.json doesn't set its own modelId.
     // eleven_v3 (the original hardcoded default) supports the [tag] bracket
     // syntax for emotional direction, but does NOT support the speed
     // parameter at all — a voice wanting custom speed needs a different
     // model (e.g. eleven_multilingual_v2, eleven_turbo_v2_5).
-    defaultModelId: process.env.ELEVENLABS_MODEL_ID || 'eleven_v3'
+    defaultModelId: process.env.ELEVENLABS_MODEL_ID || "eleven_v3",
   },
 
   tts: {
@@ -135,6 +137,13 @@ module.exports = {
     // their measured velocity, so the sound lands in front of them.
     leadTimeSeconds: Number(process.env.TTS_LEAD_TIME_SECONDS) || 1.5,
 
-    defaultRange: Number(process.env.TTS_DEFAULT_RANGE) || 30
-  }
+    defaultRange: Number(process.env.TTS_DEFAULT_RANGE) || 30,
+
+    // How many units to lower the Y coordinate before spawning the hidden
+    // voice source, so it ends up underground rather than at the target's
+    // actual height. Applied uniformly to both {x,y,z} and steamId-based
+    // targets, in resolvePosition() — a single place, so neither path can
+    // drift out of sync with the other.
+    undergroundOffset: Number(process.env.TTS_UNDERGROUND_OFFSET) || 10,
+  },
 };

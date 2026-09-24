@@ -1,0 +1,9 @@
+{
+  "manual": {
+    "preset": "manual",
+    "steamId": "76561197992270733",
+    "voice": "robot",
+    "pitchDown": true,
+    "reverb": true
+  }
+}

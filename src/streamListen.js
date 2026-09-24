@@ -9,10 +9,10 @@
 // unpipe-then-kill-ffmpeg-then-kill-streamlink-process-group in that exact
 // order to avoid orphaned processes on shutdown).
 
-const sdk = require('microsoft-cognitiveservices-speech-sdk');
-const config = require('./config');
-const twitchMap = require('./twitchMap');
-const { openAudioStream, stopAudioStream } = require('./audioGrabber');
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
+const config = require("./config");
+const twitchMap = require("./twitchMap");
+const { openAudioStream, stopAudioStream } = require("./audioGrabber");
 
 /**
  * @param {string} steamId
@@ -23,17 +23,21 @@ const { openAudioStream, stopAudioStream } = require('./audioGrabber');
  * @returns {Promise<{ok:true,transcript:string,matchedKeyword:string|null,timedOut:boolean}|{ok:false,reason:string}>}
  */
 function listenToStream(steamId, opts = {}) {
-  const maxDurationMs = opts.maxDurationMs ?? config.streamListen.defaultMaxDurationMs;
+  const maxDurationMs =
+    opts.maxDurationMs ?? config.streamListen.defaultMaxDurationMs;
   const keyword = opts.keyword ? opts.keyword.toLowerCase() : null;
 
   return new Promise((resolve) => {
     const twitchUsername = twitchMap.getTwitchUsername(steamId);
     if (!twitchUsername) {
-      resolve({ ok: false, reason: `no twitch username mapped for steamId ${steamId}` });
+      resolve({
+        ok: false,
+        reason: `no twitch username mapped for steamId ${steamId}`,
+      });
       return;
     }
     if (!config.azure.key) {
-      resolve({ ok: false, reason: 'AZURE_KEY is not set' });
+      resolve({ ok: false, reason: "AZURE_KEY is not set" });
       return;
     }
 
@@ -41,10 +45,13 @@ function listenToStream(steamId, opts = {}) {
     let settled = false;
     let audioHandles = null;
 
-    const speechConfig = sdk.SpeechConfig.fromSubscription(config.azure.key, config.azure.region);
-    speechConfig.speechRecognitionLanguage = 'en-US';
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      config.azure.key,
+      config.azure.region,
+    );
+    speechConfig.speechRecognitionLanguage = "en-US";
     speechConfig.setProfanity(sdk.ProfanityOption.Raw);
-    speechConfig.setProperty('EndSilenceTimeoutMs', '250');
+    speechConfig.setProperty("EndSilenceTimeoutMs", "250");
 
     const pushStream = sdk.AudioInputStream.createPushStream();
     const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
@@ -76,16 +83,16 @@ function listenToStream(steamId, opts = {}) {
           // processes running.
           if (audioHandles) stopAudioStream(audioHandles);
           resolve(result);
-        }
+        },
       );
     };
 
     const timeoutHandle = setTimeout(() => {
       finish({
         ok: true,
-        transcript: transcriptParts.join(' ').trim(),
+        transcript: transcriptParts.join(" ").trim(),
         matchedKeyword: null,
-        timedOut: true
+        timedOut: true,
       });
     }, maxDurationMs);
 
@@ -96,35 +103,50 @@ function listenToStream(steamId, opts = {}) {
 
         transcriptParts.push(text);
 
+        // Opt-in: log each phrase the instant it's recognized, purely for a
+        // human to read along live — this doesn't change what's returned at
+        // the end (still the full accumulated transcript / keyword match,
+        // unaffected either way).
+        if (opts.logLive) {
+          console.log(`[streamListen] recognized: "${text}"`);
+        }
+
         if (keyword && text.toLowerCase().includes(keyword)) {
           finish({
             ok: true,
-            transcript: transcriptParts.join(' ').trim(),
+            transcript: transcriptParts.join(" ").trim(),
             matchedKeyword: opts.keyword,
-            timedOut: false
+            timedOut: false,
           });
         }
       }
     };
 
     recognizer.canceled = (_sender, event) => {
-      finish({ ok: false, reason: `recognition canceled: ${event.errorDetails || event.reason}` });
+      finish({
+        ok: false,
+        reason: `recognition canceled: ${event.errorDetails || event.reason}`,
+      });
     };
 
     recognizer.startContinuousRecognitionAsync();
 
     try {
       audioHandles = openAudioStream(twitchUsername);
-      audioHandles.stdout.on('data', (chunk) => pushStream.write(chunk));
-      audioHandles.stdout.on('close', () => {
+      audioHandles.stdout.on("data", (chunk) => pushStream.write(chunk));
+      audioHandles.stdout.on("close", () => {
         try {
           pushStream.close();
         } catch {
           /* already closed */
         }
       });
-      audioHandles.ffmpegProc.on('error', (err) => finish({ ok: false, reason: `ffmpeg error: ${err.message}` }));
-      audioHandles.streamlinkProc.on('error', (err) => finish({ ok: false, reason: `streamlink error: ${err.message}` }));
+      audioHandles.ffmpegProc.on("error", (err) =>
+        finish({ ok: false, reason: `ffmpeg error: ${err.message}` }),
+      );
+      audioHandles.streamlinkProc.on("error", (err) =>
+        finish({ ok: false, reason: `streamlink error: ${err.message}` }),
+      );
     } catch (err) {
       finish({ ok: false, reason: err.message });
     }

@@ -44,10 +44,10 @@ async function updateFacecamOnCanvas(steamId, netId) {
   }
 
   let bbox;
+  const overrides = streamerHints.getOverrides(twitchUsername);
   try {
     const t2 = Date.now();
-    const hint = streamerHints.getHint(twitchUsername);
-    bbox = await detectFacecam(frame, dims, hint);
+    bbox = await detectFacecam(frame, dims, overrides?.hint);
     log('detect facecam', t2);
   } catch (err) {
     return { ok: false, reason: `facecam detection failed: ${err.message}` };
@@ -68,7 +68,18 @@ async function updateFacecamOnCanvas(steamId, netId) {
     }
   }
 
-  const clamped = buildCropFromCenter(bbox, dims, config.facecamCrop);
+  // Edge-proximity check above deliberately used bbox.cx/cy UNMODIFIED — it's
+  // judging whether the model's own detection is trustworthy, before any of
+  // our own correction is applied. The per-streamer cxOffset/cyOffset (if
+  // any) only shifts where we crop from here on, a separate concern from
+  // whether we trust the detection at all.
+  const adjustedBbox = {
+    ...bbox,
+    cx: bbox.cx + (overrides?.cxOffset || 0),
+    cy: bbox.cy + (overrides?.cyOffset || 0)
+  };
+
+  const clamped = buildCropFromCenter(adjustedBbox, dims, config.facecamCrop);
   if (!clamped) {
     return {
       ok: false,

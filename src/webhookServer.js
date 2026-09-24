@@ -11,6 +11,7 @@ const deathCam = require('./features/deathCam');
 const gadgetUsage = require('./gadgetUsage');
 const rustApi = require('./rustPluginClient');
 const voiceMap = require('./voiceMap');
+const ttsPresets = require('./ttsPresets');
 const { playTTS } = require('./features/ttsAudio');
 const { listenToStream } = require('./streamListen');
 
@@ -283,9 +284,23 @@ function createServer() {
   //   GET /manual/tts?text=hello&x=100&y=0&z=200&key=...
   //   GET /manual/tts?text=hello&steamId=76561198000000000&key=...
   //   GET /manual/tts?text=hello&steamId=...&voice=pirate&key=...
-  //   GET /manual/tts?text=hello&steamId=...&reverb=false&pitchDown=false&range=50&key=...
+  //   GET /manual/tts?preset=security&steamId=...&key=...
+  //   GET /manual/tts?text=hello&steamId=...&reverb=false&pitchDown=false&range=50&volume=0.5&key=...
   app.get('/manual/tts', verifySecret, async (req, res) => {
-    if (!req.query.text) return res.status(400).json({ error: 'missing ?text=' });
+    if (req.query.text && req.query.preset) {
+      return res.status(400).json({ error: 'specify either ?text= or ?preset=, not both' });
+    }
+
+    let text = req.query.text;
+    if (req.query.preset) {
+      text = ttsPresets.getPreset(req.query.preset);
+      if (text === null) {
+        return res.status(400).json({
+          error: `no preset named "${req.query.preset}" — known presets: ${ttsPresets.listPresetNames().join(', ') || '(none configured)'}`
+        });
+      }
+    }
+    if (!text) return res.status(400).json({ error: 'missing ?text= or ?preset=' });
 
     let target;
     if (req.query.steamId) {
@@ -302,9 +317,24 @@ function createServer() {
     if (req.query.range !== undefined) opts.range = Number(req.query.range);
     if (req.query.voice) opts.voiceName = req.query.voice;
     if (req.query.voiceId) opts.voiceId = req.query.voiceId;
+    if (req.query.volume !== undefined) opts.volume = Number(req.query.volume);
 
-    const result = await playTTS(req.query.text, target, opts);
+    const result = await playTTS(text, target, opts);
     res.status(result.ok ? 200 : 422).json(result);
+  });
+
+  // TTS presets — list, or create/update one (works for "manual" or any
+  // other name; no restart needed, takes effect immediately).
+  //   GET /manual/tts-presets?key=...
+  //   GET /manual/tts-presets/manual/set?text=whatever+you+want&key=...
+  app.get('/manual/tts-presets', verifySecret, (req, res) => {
+    const names = ttsPresets.listPresetNames();
+    res.json({ presets: Object.fromEntries(names.map((n) => [n, ttsPresets.getPreset(n)])) });
+  });
+  app.get('/manual/tts-presets/:name/set', verifySecret, (req, res) => {
+    if (req.query.text === undefined) return res.status(400).json({ error: 'missing ?text=' });
+    ttsPresets.setPreset(req.params.name, req.query.text);
+    res.json({ ok: true, name: req.params.name, text: req.query.text });
   });
 
   //   GET /manual/voices?key=...

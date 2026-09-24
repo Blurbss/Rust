@@ -16,13 +16,19 @@ const client = axios.create({
 });
 
 // Unwrap axios errors into the plugin's own {error: "..."} shape when possible,
-// so callers get a consistent message either way.
+// so callers get a consistent message either way. Also logs method/URL/status
+// for every call — success or failure — so "what did the plugin actually
+// return" is always visible in pm2 logs, not just inferable from whether the
+// call threw.
 async function call(promise) {
   try {
     const res = await promise;
+    console.log(`[rustPluginClient] ${res.config.method.toUpperCase()} ${res.config.url} -> ${res.status}`);
     return res.data;
   } catch (err) {
+    const status = err.response?.status ?? 'no response';
     const apiError = err.response?.data?.error;
+    console.error(`[rustPluginClient] ${err.config?.method?.toUpperCase()} ${err.config?.url} -> ${status}: ${apiError || err.message}`);
     throw new Error(apiError || err.message);
   }
 }

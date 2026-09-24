@@ -1,11 +1,26 @@
-// Per-streamer detection hints, for outlier cases where the generic
+// Per-streamer detection overrides, for outlier cases where the generic
 // facecam-detection prompt (facecamDetector.js's SYSTEM_PROMPT, shared and
 // unchanged for everyone) genuinely can't cope with a specific streamer's
-// unusual overlay — e.g. a VTuber avatar that doesn't read as a normal face
-// shape. A hint here is appended ONLY when processing that exact streamer's
-// frame; every other streamer's detection call is byte-identical to before
-// this file existed. Keyed by lowercased twitch username so casing in
-// twitch-map.json doesn't cause a silent miss.
+// unusual overlay. Two independent kinds of override, both keyed by
+// lowercased twitch username so casing in twitch-map.json doesn't cause a
+// silent miss:
+//
+//   hint     — text appended to the prompt for that one streamer's calls
+//              only. Good for "this doesn't look like a normal face,
+//              here's what to actually look for" — a judgment call, left to
+//              the model.
+//   cxOffset/cyOffset — a fixed fractional nudge (-1.0 to 1.0) applied to
+//              the model's returned center point AFTER detection, only when
+//              building the crop window — NOT before the edge-proximity
+//              safety check, which still judges the model's genuine,
+//              unmodified output. Good for "the model finds it in roughly
+//              the right place every time, but consistently off-center by
+//              about this much" — a measured, deterministic correction, not
+//              something to leave to the model's own numeric precision via
+//              a text instruction.
+//
+// Either can be set alone or together. Storage shape:
+//   { "<username>": { "hint": "...", "cxOffset": -0.05, "cyOffset": 0 } }
 
 const fs = require('fs');
 const path = require('path');
@@ -32,23 +47,33 @@ function save() {
   fs.writeFileSync(DATA_PATH, JSON.stringify(map, null, 2));
 }
 
-/** Returns the hint text for a twitch username, or null if none is set. */
-function getHint(twitchUsername) {
+/**
+ * @param {string} twitchUsername
+ * @returns {{hint?:string, cxOffset?:number, cyOffset?:number}|null} the full
+ *   override record for this streamer, or null if none is set
+ */
+function getOverrides(twitchUsername) {
   if (!twitchUsername) return null;
   return map[twitchUsername.toLowerCase()] || null;
 }
 
-/** Adds or updates one streamer's hint and persists the whole file. */
-function setHint(twitchUsername, hintText) {
-  map[twitchUsername.toLowerCase()] = hintText;
+/** Convenience: just the hint text, or null. */
+function getHint(twitchUsername) {
+  return getOverrides(twitchUsername)?.hint || null;
+}
+
+/** Merges the given fields into this streamer's record (creating it if needed) and persists. */
+function setOverrides(twitchUsername, overrides) {
+  const key = twitchUsername.toLowerCase();
+  map[key] = { ...map[key], ...overrides };
   save();
 }
 
-function removeHint(twitchUsername) {
+function removeOverrides(twitchUsername) {
   delete map[twitchUsername.toLowerCase()];
   save();
 }
 
 load();
 
-module.exports = { load, save, getHint, setHint, removeHint };
+module.exports = { load, save, getOverrides, getHint, setOverrides, removeOverrides };

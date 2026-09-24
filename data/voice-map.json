@@ -1,4 +1,10 @@
 {
-  "pirate": "example_pirate_voice_id",
-  "robot": "example_robot_voice_id"
+  "pirate": {
+    "voiceId": "example_pirate_voice_id",
+    "volume": 1.0
+  },
+  "robot": {
+    "voiceId": "example_robot_voice_id",
+    "volume": 0.7
+  }
 }

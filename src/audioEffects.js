@@ -46,17 +46,22 @@ async function probeSampleRate(filePath) {
 /**
  * @param {Buffer} audioBuffer input audio (whatever ElevenLabs returned — mp3)
  * @param {object} [opts]
- * @param {boolean} [opts.pitchDown] default true
- * @param {boolean} [opts.reverb] default true
+ * @param {boolean} [opts.pitchDown] default false
+ * @param {boolean} [opts.reverb] default false
  * @param {number} [opts.pitchFactor] < 1 lowers pitch, e.g. 0.9 = ~10% lower. Default from config.
- * @returns {Promise<Buffer>} processed mp3 bytes — same buffer back, untouched, if both effects are off
+ * @param {number} [opts.volume] linear gain multiplier, default 1.0 (no change). Applied LAST,
+ *   after pitch/reverb, as a final, predictable overall gain stage regardless of what other
+ *   effects ran (reverb's own echo taps can otherwise skew perceived loudness).
+ * @returns {Promise<Buffer>} processed mp3 bytes — same buffer back, untouched, if no effect applies
  */
 async function applyVoiceEffects(audioBuffer, opts = {}) {
-  const pitchDown = opts.pitchDown ?? true;
-  const reverb = opts.reverb ?? true;
+  const pitchDown = opts.pitchDown ?? false;
+  const reverb = opts.reverb ?? false;
   const pitchFactor = opts.pitchFactor ?? config.tts.pitchFactor;
+  const volume = opts.volume ?? 1.0;
+  const hasVolumeChange = volume !== 1.0;
 
-  if (!pitchDown && !reverb) return audioBuffer; // nothing to do
+  if (!pitchDown && !reverb && !hasVolumeChange) return audioBuffer; // nothing to do
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const tmpIn = path.join(os.tmpdir(), `tts-in-${stamp}.mp3`);
@@ -76,6 +81,10 @@ async function applyVoiceEffects(audioBuffer, opts = {}) {
 
     if (reverb) {
       filters.push(`aecho=${AECHO_PARAMS}`);
+    }
+
+    if (hasVolumeChange) {
+      filters.push(`volume=${volume}`);
     }
 
     await execFileAsync('ffmpeg', [

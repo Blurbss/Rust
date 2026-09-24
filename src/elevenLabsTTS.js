@@ -40,11 +40,24 @@ async function generateSpeech(text, opts = {}) {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
+    console.error(`[elevenLabsTTS] API error ${res.status} (voiceId=${voiceId}): ${errText}`);
     throw new Error(`ElevenLabs API error ${res.status}: ${errText}`);
   }
 
   const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
+
+  // A 200 with a suspiciously tiny body is worth flagging on its own — seen
+  // in the wild when something upstream returns an empty/near-empty audio
+  // response despite a success status. Not necessarily an error, but a
+  // signal worth having in the logs rather than silently trusting res.ok alone.
+  if (buffer.length < 1000) {
+    console.warn(`[elevenLabsTTS] HTTP ${res.status}, but only ${buffer.length} bytes — suspiciously small for real audio (voiceId=${voiceId})`);
+  } else {
+    console.log(`[elevenLabsTTS] HTTP ${res.status}, generated ${buffer.length} bytes (voiceId=${voiceId})`);
+  }
+
+  return buffer;
 }
 
 module.exports = { generateSpeech };

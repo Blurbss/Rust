@@ -313,10 +313,13 @@ function createServer() {
 
     const opts = {};
     if (req.query.pitchDown !== undefined) opts.pitchDown = req.query.pitchDown === 'true';
+    if (req.query.pitchFactor !== undefined) opts.pitchFactor = Number(req.query.pitchFactor);
     if (req.query.reverb !== undefined) opts.reverb = req.query.reverb === 'true';
     if (req.query.range !== undefined) opts.range = Number(req.query.range);
     if (req.query.voice) opts.voiceName = req.query.voice;
     if (req.query.voiceId) opts.voiceId = req.query.voiceId;
+    if (req.query.modelId) opts.modelId = req.query.modelId;
+    if (req.query.speed !== undefined) opts.speed = Number(req.query.speed);
     if (req.query.volume !== undefined) opts.volume = Number(req.query.volume);
 
     const result = await playTTS(text, target, opts);

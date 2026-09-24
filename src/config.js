@@ -108,7 +108,13 @@ module.exports = {
   elevenLabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || '',
     // Default from the provided example script — override per-call or via env.
-    voiceId: process.env.ELEVENLABS_VOICE_ID || 'oR4uRy4fHDUGGISL0Rev'
+    voiceId: process.env.ELEVENLABS_VOICE_ID || 'oR4uRy4fHDUGGISL0Rev',
+    // Used when a voice in voice-map.json doesn't set its own modelId.
+    // eleven_v3 (the original hardcoded default) supports the [tag] bracket
+    // syntax for emotional direction, but does NOT support the speed
+    // parameter at all — a voice wanting custom speed needs a different
+    // model (e.g. eleven_multilingual_v2, eleven_turbo_v2_5).
+    defaultModelId: process.env.ELEVENLABS_MODEL_ID || 'eleven_v3'
   },
 
   tts: {

@@ -1,24 +1,46 @@
-// Server-side voice effects via ffmpeg — reverb and a slight pitch-down,
-// approximating the browser ConvolverNode+GainNode effect chain without
-// needing a native audio-output binding. This runs on a headless droplet
-// with no sound card and no need for real-time playback, so a native
-// speaker-output dependency (which is what a real Web Audio API port for
-// Node pulls in, for decodeAudioData/ConvolverNode) is the wrong tool here —
-// ffmpeg is already a hard requirement for this whole project and produces
-// exactly the kind of file the plugin's /play endpoint expects
-// ("mp3, or anything ffmpeg reads").
+// Server-side voice effects via ffmpeg — reverb and pitch-down, approximating
+// the browser ConvolverNode+GainNode effect chain without needing a native
+// audio-output binding. This runs on a headless droplet with no sound card
+// and no need for real-time playback, so a native speaker-output dependency
+// (what a real Web Audio API port for Node pulls in, for
+// decodeAudioData/ConvolverNode) is the wrong tool here — ffmpeg is already
+// a hard requirement for this whole project.
 //
-// Reverb here is an aecho-based approximation (multiple delayed, decaying
-// echo taps), not true convolution reverb against a generated noise impulse
-// like the browser ConvolverNode version — it's a well-known cheap
-// approximation, not identical, but doesn't need an impulse-response file
-// or any extra dependency. Tune AECHO_PARAMS below to taste.
+// REVERB: uses TWO CHAINED aecho stages, not true convolution (afir). A
+// convolution-reverb version was built and tested extensively — it produced
+// valid, correctly encoded, correctly sized files (confirmed via ffprobe and
+// manual CLI runs on the actual droplet's ffmpeg 4.4.2) that were accepted by
+// the plugin (202, real id/netId) — but never actually played in-game, for
+// reasons that couldn't be pinned down remotely. Since aecho is confirmed to
+// actually produce audible playback in this environment, that's the tool
+// available; tuning has gone through several iterations to get as close to
+// the original convolution reverb's character as aecho can reach:
 //
-// Pitch-down uses asetrate (reinterprets sample rate = changes pitch AND
-// speed) followed by aresample back to the original rate and atempo to
-// restore the original duration — so the end result is pitch-shifted only,
-// not slowed down. Requires probing the real input sample rate first via
-// ffprobe (can't assume ElevenLabs's output rate without checking).
+//   1. Original attempt: 2 taps, widely spaced (1000ms, 1800ms) — sounded
+//      like distinct repeats, not reverb.
+//   2. Many taps (7), evenly spaced (20ms apart) — fixed the "repeats"
+//      problem but caused comb filtering (perfectly periodic echoes
+//      reinforce/cancel specific frequencies), audible as a tinny, metallic,
+//      "in a box" resonance.
+//   3. Irregularly-spaced taps with increasing gaps — fixed the metallic
+//      resonance, but the short total decay (~200ms) read as tight/boxy,
+//      like an intercom, not spacious.
+//   4. CURRENT: two aecho stages chained in series, each irregularly spaced,
+//      spanning a much longer total decay (~900ms tail). Chaining stages is
+//      the same principle classic (Schroeder-style) reverb algorithms use —
+//      the second stage echoes the ALREADY-ECHOED signal from the first,
+//      compounding into a denser, more diffuse wash than any single stage of
+//      discrete taps can produce alone. Not identical to true convolution,
+//      but the closest this tool gets: longer, denser, and non-periodic
+//      rather than short and metallic.
+//
+// PITCH-DOWN: uses ffmpeg's rubberband filter — a real pitch-shifting
+// library (confirmed compiled into this ffmpeg build), not the cheap
+// asetrate+atempo reinterpret-the-sample-rate trick an earlier version used.
+// Shifts pitch independent of tempo/duration in one filter, no sample-rate
+// probing or manual tempo math needed. Tested directly: the old
+// asetrate+atempo approach hard-crashed ffmpeg once pitchFactor dropped to
+// 0.1; rubberband succeeded cleanly all the way down to 0.01.
 
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -28,30 +50,25 @@ const os = require('os');
 const path = require('path');
 const config = require('./config');
 
-const AECHO_PARAMS = '0.8:0.9:1000|1800:0.3|0.25'; // in_gain:out_gain:delays(ms):decays
-
-async function probeSampleRate(filePath) {
-  const { stdout } = await execFileAsync('ffprobe', [
-    '-v', 'error',
-    '-select_streams', 'a:0',
-    '-show_entries', 'stream=sample_rate',
-    '-of', 'default=noprint_wrappers=1:nokey=1',
-    filePath
-  ]);
-  const rate = parseInt(stdout.trim(), 10);
-  if (!rate) throw new Error(`could not determine sample rate of ${filePath}`);
-  return rate;
-}
+// Stage 1: early reflections, closer together, spanning ~0-300ms.
+// Stage 2: late reflections, feeding off stage 1's already-diffused output,
+// spanning ~150-600ms further out — the overlap between the two stages'
+// ranges is intentional, it's what creates the compounding density.
+// out_gain kept at/below 0.7-0.8 to avoid ffmpeg's own clipping/saturation
+// warning seen at 0.9.
+const AECHO_STAGE_1 = '0.8:0.7:25|55|90|130|175|225|280:0.35|0.3|0.26|0.22|0.19|0.16|0.13';
+const AECHO_STAGE_2 = '0.7:0.6:150|280|430|600:0.25|0.18|0.12|0.08';
 
 /**
  * @param {Buffer} audioBuffer input audio (whatever ElevenLabs returned — mp3)
  * @param {object} [opts]
  * @param {boolean} [opts.pitchDown] default false
  * @param {boolean} [opts.reverb] default false
- * @param {number} [opts.pitchFactor] < 1 lowers pitch, e.g. 0.9 = ~10% lower. Default from config.
+ * @param {number} [opts.pitchFactor] < 1 lowers pitch, e.g. 0.9 = ~10% lower, 0.3 = very deep.
+ *   Default from config.tts.pitchFactor (itself from TTS_PITCH_FACTOR in .env). Tested working
+ *   cleanly (via rubberband) all the way down to 0.01.
  * @param {number} [opts.volume] linear gain multiplier, default 1.0 (no change). Applied LAST,
- *   after pitch/reverb, as a final, predictable overall gain stage regardless of what other
- *   effects ran (reverb's own echo taps can otherwise skew perceived loudness).
+ *   after pitch/reverb, as a final, predictable overall gain stage.
  * @returns {Promise<Buffer>} processed mp3 bytes — same buffer back, untouched, if no effect applies
  */
 async function applyVoiceEffects(audioBuffer, opts = {}) {
@@ -73,14 +90,11 @@ async function applyVoiceEffects(audioBuffer, opts = {}) {
     const filters = [];
 
     if (pitchDown) {
-      const rate = await probeSampleRate(tmpIn);
-      const newRate = Math.round(rate * pitchFactor);
-      const tempo = 1 / pitchFactor;
-      filters.push(`asetrate=${newRate}`, `aresample=${rate}`, `atempo=${tempo}`);
+      filters.push(`rubberband=pitch=${pitchFactor}`);
     }
 
     if (reverb) {
-      filters.push(`aecho=${AECHO_PARAMS}`);
+      filters.push(`aecho=${AECHO_STAGE_1}`, `aecho=${AECHO_STAGE_2}`);
     }
 
     if (hasVolumeChange) {
@@ -94,6 +108,16 @@ async function applyVoiceEffects(audioBuffer, opts = {}) {
       '-af', filters.join(','),
       tmpOut
     ]);
+
+    // Debug aid: preserve the exact processed file instead of deleting it,
+    // so it can be downloaded and actually played/inspected directly. Off by
+    // default — every real run still cleans up normally unless explicitly
+    // asked not to via TTS_DEBUG_KEEP_OUTPUT=true.
+    if (process.env.TTS_DEBUG_KEEP_OUTPUT === 'true') {
+      const debugPath = path.join(os.tmpdir(), 'tts-debug-last-output.mp3');
+      await fs.copyFile(tmpOut, debugPath);
+      console.log(`[audioEffects] debug copy saved to ${debugPath}`);
+    }
 
     return await fs.readFile(tmpOut);
   } finally {

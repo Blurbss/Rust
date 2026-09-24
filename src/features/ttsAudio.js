@@ -90,6 +90,8 @@ async function resolvePosition(target) {
  * @param {{x:number,y:number,z:number}|{steamId:string}} target
  * @param {object} [opts]
  * @param {boolean} [opts.pitchDown] default false
+ * @param {number} [opts.pitchFactor] < 1 lowers pitch further, e.g. 0.7 for a much lower voice.
+ *   Default comes from TTS_PITCH_FACTOR in .env if omitted.
  * @param {boolean} [opts.reverb] default false
  * @param {number} [opts.range] metres, default from config
  * @param {string} [opts.voiceName] friendly name ("pirate", "robot") looked
@@ -100,6 +102,11 @@ async function resolvePosition(target) {
  *   exclusive with opts.voiceName. One of voiceName/voiceId is REQUIRED.
  * @param {number} [opts.volume] explicit linear gain override (0.0-1.0+),
  *   takes precedence over the voice's own configured volume either way.
+ * @param {string} [opts.modelId] explicit ElevenLabs model override — takes precedence
+ *   over the voice's own configured model either way.
+ * @param {number} [opts.speed] explicit speed override (0.7-1.2) — takes precedence over
+ *   the voice's own configured speed either way. NOT supported on the eleven_v3 model;
+ *   generateSpeech logs a warning rather than silently doing nothing if this combination occurs.
  * @returns {Promise<{ok:true,position:object}|{ok:false,reason:string}>}
  */
 async function playTTS(text, target, opts = {}) {
@@ -122,6 +129,8 @@ async function playTTS(text, target, opts = {}) {
 
   let voiceId = opts.voiceId;
   let volume = opts.volume; // explicit override, if any — resolved further below
+  let modelId = opts.modelId;
+  let speed = opts.speed;
   if (opts.voiceName) {
     voiceId = voiceMap.getVoiceId(opts.voiceName);
     if (!voiceId) {
@@ -130,10 +139,16 @@ async function playTTS(text, target, opts = {}) {
         reason: `no voice mapped for "${opts.voiceName}" — known voices: ${voiceMap.listVoiceNames().join(', ') || '(none configured)'}`
       };
     }
-    // Voice's own configured volume applies automatically unless the caller
-    // explicitly overrode it above.
+    // Voice's own configured volume/model/speed apply automatically unless
+    // the caller explicitly overrode them above.
     if (volume === undefined) {
       volume = voiceMap.getVolume(opts.voiceName);
+    }
+    if (modelId === undefined) {
+      modelId = voiceMap.getModelId(opts.voiceName);
+    }
+    if (speed === undefined) {
+      speed = voiceMap.getSpeed(opts.voiceName);
     }
   }
 
@@ -150,7 +165,7 @@ async function playTTS(text, target, opts = {}) {
   let rawAudio;
   try {
     const t2 = Date.now();
-    rawAudio = await generateSpeech(text, { voiceId });
+    rawAudio = await generateSpeech(text, { voiceId, modelId, speed });
     log('generate speech', t2);
   } catch (err) {
     // generateSpeech already console.errors the ElevenLabs response itself —
@@ -164,6 +179,7 @@ async function playTTS(text, target, opts = {}) {
     const t3 = Date.now();
     processedAudio = await applyVoiceEffects(rawAudio, {
       pitchDown: opts.pitchDown,
+      pitchFactor: opts.pitchFactor,
       reverb: opts.reverb,
       volume
     });

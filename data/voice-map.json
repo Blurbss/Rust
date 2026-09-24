@@ -1,10 +1,56 @@
 {
   "pirate": {
-    "voiceId": "example_pirate_voice_id",
+    "voiceId": "5Lhe9nAsfr37crjNRt51",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
     "volume": 1.0
   },
   "robot": {
-    "voiceId": "example_robot_voice_id",
-    "volume": 0.7
+    "voiceId": "weA4Q36twV5kwSaTEL0Q",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "whisper": {
+    "voiceId": "pEKoF2EEefI3cK9DBO50",
+    "modelId": "eleven_multilingual_v2",
+    "speed": 0.7,
+    "volume": 1.0
+  },
+  "wizard": {
+    "voiceId": "oR4uRy4fHDUGGISL0Rev",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "witch": {
+    "voiceId": "HH3kybY6uEJ2ebSa9Vy3",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "calypso": {
+    "voiceId": "sssn4wp3AspuK2kvy3Ym",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "gollum": {
+    "voiceId": "qhH5VOAvpCwvNpmn2srO",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "god": {
+    "voiceId": "GGL1DJD73phMgZGwtdQd",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+  "tree": {
+    "voiceId": "bFrjFL4nlpeYNwNRhXxq",
+    "modelId": "eleven_v3",
+    "speed": 1.0,
+    "volume": 1.0
   }
 }

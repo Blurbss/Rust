@@ -189,7 +189,7 @@ function createServer() {
   // Dome of Silence arm/disarm/status — now per named zone, so you can run
   // several independent VOIP detection zones at once.
   //   GET /manual/dome/arm/base?key=...
-  //   GET /manual/dome/arm/outpost?radius=15&switchEntityId=99999&key=...
+  //   GET /manual/dome/arm/outpost?radius=15&switchEntityId=99999&offDelayMs=2000&key=...
   //   GET /manual/dome/disarm/base?key=...
   //   GET /manual/dome/status?key=...          (lists all armed zones)
   //   GET /manual/dome/status/base?key=...      (checks one specific zone)
@@ -198,6 +198,8 @@ function createServer() {
     if (req.query.radius) opts.radius = Number(req.query.radius);
     if (req.query.switchEntityId)
       opts.switchEntityId = req.query.switchEntityId;
+    if (req.query.offDelayMs !== undefined)
+      opts.offDelayMs = Number(req.query.offDelayMs);
     const result = await domeOfSilence.arm(req.params.zoneName, opts);
     res.status(result.ok ? 200 : 422).json(result);
   });

@@ -102,6 +102,24 @@ module.exports = {
     switchEntityId: process.env.DOME_SWITCH_ENTITY_ID || "",
   },
 
+  // Where the canvas shield's canvas returns to after CANVAS_SHIELD_RETURN_DELAY_MS —
+  // some "parked"/home spot rather than left in front of your face indefinitely.
+  // How far below the intended position the canvas stages while loading the
+  // new image, so it's hidden rather than visible with a blank/stale texture
+  // during the brief window between paint and actually rendering.
+  canvasShieldStaging: {
+    offsetY: Number(process.env.CANVAS_SHIELD_STAGING_OFFSET_Y) || 10,
+  },
+
+  canvasShieldReturn: {
+    homePosition: {
+      x: Number(process.env.CANVAS_SHIELD_HOME_X) || 408.301,
+      y: Number(process.env.CANVAS_SHIELD_HOME_Y) || 123.664627,
+      z: Number(process.env.CANVAS_SHIELD_HOME_Z) || 73.56391,
+    },
+    returnDelayMs: Number(process.env.CANVAS_SHIELD_RETURN_DELAY_MS) || 10000,
+  },
+
   streamListen: {
     defaultMaxDurationMs:
       Number(process.env.STREAM_LISTEN_MAX_DURATION_MS) || 15000,

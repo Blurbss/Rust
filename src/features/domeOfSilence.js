@@ -40,7 +40,6 @@ const STATE_KEY = "domeOfSilenceZones"; // { [zoneName]: {subscriptionId, origin
 // zone's.
 const currentlySpeakingByZone = new Map(); // zoneName -> Set<steamId>
 const turnOffTimeoutsByZone = new Map(); // zoneName -> timeout handle
-const TURN_OFF_DELAY_MS = 3000;
 
 function getZones() {
   return state.get(STATE_KEY, {});
@@ -69,6 +68,11 @@ function distance2D(x1, z1, x2, z2) {
  * @param {object} [opts]
  * @param {number} [opts.radius] overrides config.domeOfSilence.radius for this zone
  * @param {string|number} [opts.switchEntityId] overrides config.domeOfSilence.switchEntityId for this zone
+ * @param {number} [opts.offDelayMs] how long to wait, after everyone in this
+ *   zone stops talking, before actually turning the switch off — a grace
+ *   period so brief pauses between sentences don't flicker it off and back
+ *   on. Default 0 (turns off immediately once nobody's speaking). Any new
+ *   speaker within this window cancels the pending turn-off.
  * @returns {Promise<{ok:true,subscriptionId:string}|{ok:false,reason:string}>}
  */
 async function arm(zoneName, opts = {}) {
@@ -95,7 +99,9 @@ async function arm(zoneName, opts = {}) {
   }
 
   const radius = opts.radius ?? config.domeOfSilence.radius;
-  const switchEntityId = opts.switchEntityId ?? config.domeOfSilence.switchEntityId;
+  const switchEntityId =
+    opts.switchEntityId ?? config.domeOfSilence.switchEntityId;
+  const offDelayMs = opts.offDelayMs ?? 0;
   const webhookUrl = `${config.publicBaseUrl}/webhook?key=${config.webhookSecret}`;
 
   let subscription;
@@ -107,7 +113,10 @@ async function arm(zoneName, opts = {}) {
       radius,
     });
   } catch (err) {
-    return { ok: false, reason: `failed to create subscription: ${err.message}` };
+    return {
+      ok: false,
+      reason: `failed to create subscription: ${err.message}`,
+    };
   }
 
   zones[zoneName] = {
@@ -116,6 +125,7 @@ async function arm(zoneName, opts = {}) {
     originZ: myLook.eyes.z,
     radius,
     switchEntityId,
+    offDelayMs,
     armedAt: Date.now(),
   };
   saveZones(zones);
@@ -176,7 +186,10 @@ async function handleVoiceStateForDome(data) {
     return { ok: false, reason: "voice_state event had no player steamId" };
   }
   if (!data.position) {
-    return { ok: false, reason: "voice_state event had no position — cannot attribute to a zone" };
+    return {
+      ok: false,
+      reason: "voice_state event had no position — cannot attribute to a zone",
+    };
   }
 
   // Don't trigger on your own voice.
@@ -187,7 +200,12 @@ async function handleVoiceStateForDome(data) {
 
   for (const zoneName of zoneNames) {
     const zone = zones[zoneName];
-    const dist = distance2D(data.position.x, data.position.z, zone.originX, zone.originZ);
+    const dist = distance2D(
+      data.position.x,
+      data.position.z,
+      zone.originX,
+      zone.originZ,
+    );
     if (dist > zone.radius) continue; // this event isn't inside this particular zone
 
     affectedZones.push(zoneName);
@@ -220,12 +238,13 @@ async function handleVoiceStateForDome(data) {
         speakers.delete(steamId);
 
         if (speakers.size === 0) {
+          const offDelayMs = zone.offDelayMs ?? 0;
           const timeout = setTimeout(async () => {
             turnOffTimeoutsByZone.delete(zoneName);
             if (speakers.size === 0) {
               await rustplusClient.setSwitch(zone.switchEntityId, false);
             }
-          }, TURN_OFF_DELAY_MS);
+          }, offDelayMs);
           turnOffTimeoutsByZone.set(zoneName, timeout);
         }
         // If speakers isn't empty, someone else in THIS zone is still talking — its switch stays on.
@@ -245,4 +264,10 @@ async function handleVoiceStateForDome(data) {
   return { ok: true, affectedZones };
 }
 
-module.exports = { arm, disarm, isArmed, listArmedZones, handleVoiceStateForDome };
+module.exports = {
+  arm,
+  disarm,
+  isArmed,
+  listArmedZones,
+  handleVoiceStateForDome,
+};
